@@ -1,0 +1,642 @@
+/* Game HUD: the island is the scene; controls sit over it. */
+.is-playing {
+  background: #102d37;
+}
+.is-playing .topbar {
+  background: linear-gradient(#1e2728f5, #111c21f0);
+  border-bottom: 2px solid #8d7649;
+  box-shadow: 0 3px 15px #0007;
+  z-index: 6;
+}
+.is-playing .brand > span {
+  color: #eddaad;
+  text-shadow: 0 2px 2px #000;
+}
+.is-playing .game-layout {
+  position: relative;
+  isolation: isolate;
+  grid-template-columns: 230px minmax(0, 1fr) 225px;
+}
+.is-playing .game-layout::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    #06151cc4,
+    transparent 26%,
+    transparent 74%,
+    #06151cc4
+  );
+  z-index: 1;
+}
+.is-playing .table-surface {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  z-index: 0;
+}
+.is-playing .players-panel {
+  grid-column: 1;
+  grid-row: 1;
+  position: relative;
+  z-index: 3;
+  padding: 14px 10px 12px 14px;
+}
+.is-playing .activity-panel {
+  grid-column: 3;
+  grid-row: 1;
+  position: relative;
+  z-index: 3;
+  border: 0;
+  margin: 14px 14px 12px 0;
+  padding-left: 12px;
+  pointer-events: auto;
+}
+.is-playing .board-topline {
+  left: 250px;
+  right: 235px;
+  z-index: 2;
+}
+.is-playing .board-topline p {
+  color: #b5cbc7;
+  text-shadow: 0 2px 3px #000;
+}
+.is-playing .board-topline .eyebrow {
+  color: #eedbb2;
+  text-shadow: 0 2px 3px #000;
+}
+.is-playing .panel-heading {
+  color: #d5c298;
+  font-family: Georgia, serif;
+  letter-spacing: 1.3px;
+  text-shadow: 0 2px 3px #000;
+}
+.is-playing .player-card {
+  border-radius: 3px 12px 4px 4px;
+  border: 1px solid #8b785354;
+  background: linear-gradient(120deg, #2b302cf0, #17252bde);
+  box-shadow:
+    0 5px 12px #0005,
+    inset 0 0 0 2px #0b171c99;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+.is-playing .player-card.active {
+  border-color: var(--player);
+  background: linear-gradient(
+    110deg,
+    color-mix(in srgb, var(--player) 24%, #26312e),
+    #14242be6
+  );
+  box-shadow:
+    0 0 20px color-mix(in srgb, var(--player) 15%, transparent),
+    inset 0 0 0 2px #1b2228;
+}
+.is-playing .player-card.active::before {
+  width: 4px;
+  left: -2px;
+  top: 25%;
+  bottom: 25%;
+  box-shadow: 0 0 10px var(--player);
+}
+.is-playing .avatar.portrait {
+  display: block;
+  position: relative;
+  width: 64px;
+  height: 76px;
+  flex-shrink: 0;
+  background-image: url('/art/leader-atlas.png');
+  background-size: 200% 200%;
+  border: 2px solid var(--player);
+  border-radius: 7px 7px 15px 15px;
+  box-shadow: 0 3px 8px #0008;
+}
+.portrait-0 {
+  background-position: 0 0;
+}
+.portrait-1 {
+  background-position: 100% 0;
+}
+.portrait-2 {
+  background-position: 0 100%;
+}
+.portrait-3 {
+  background-position: 100% 100%;
+}
+.portrait > span {
+  position: absolute;
+  left: -7px;
+  bottom: -5px;
+  width: 22px;
+  height: 22px;
+  background: #263034;
+  border: 1px solid #a58c58;
+  border-radius: 50%;
+  font-size: 14px;
+  text-align: center;
+  line-height: 20px;
+  color: var(--player);
+  text-shadow: 0 1px 2px #000;
+}
+.is-playing .player-name strong {
+  font:
+    600 17px Georgia,
+    serif;
+  color: #f0e5c8;
+  text-shadow: 0 2px 2px #000;
+}
+.is-playing .player-name small {
+  color: #b0b4a2;
+  font-size: 11px;
+  line-height: 1.3;
+}
+.is-playing .player-top {
+  align-items: flex-start;
+}
+.is-playing .points {
+  position: absolute;
+  right: 9px;
+  bottom: 10px;
+  font-size: 23px;
+  line-height: 1;
+  min-width: 25px;
+  text-shadow: 0 2px 3px #000;
+}
+.is-playing .points small {
+  font-size: 9px;
+  color: #c6bd9f;
+  margin-top: 3px;
+}
+.is-playing .player-stats {
+  position: relative;
+  margin-top: -22px;
+  margin-left: 74px;
+  padding-bottom: 6px;
+  max-width: calc(100% - 102px);
+  gap: 6px;
+  color: #c8c6b1;
+  font-size: 11px;
+}
+.is-playing .player-stats > span:nth-child(3) {
+  display: none;
+}
+.is-playing .turn-tag {
+  display: none;
+}
+.is-playing .awards {
+  border-color: #cfb77838;
+  background: #10232b8c;
+  padding: 12px 9px 1px;
+  border-radius: 5px;
+}
+.is-playing .awards span {
+  font:
+    14px Georgia,
+    serif;
+  color: #e7d4ab;
+}
+.is-playing .awards small {
+  font:
+    11px Arial,
+    sans-serif;
+  color: #b2bbad;
+}
+.is-playing .awards b {
+  color: #eed3a0;
+}
+.is-playing .rules-link {
+  color: #ccbfa1;
+  background: #10232b91;
+  padding: 9px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.is-playing .dice-box {
+  background: radial-gradient(ellipse, #62523988, #162931aa);
+  border: 1px solid #b19b664d;
+  box-shadow: inset 0 0 20px #0003;
+  border-radius: 5px;
+}
+.is-playing .dice-pair {
+  animation: dice-settle 0.45s ease-out;
+}
+.is-playing .die {
+  border: 1px solid #dbcba4;
+  box-shadow:
+    2px 4px 0 #80715a,
+    0 7px 13px #0006;
+}
+.is-playing .dice-box > span {
+  font-family: Georgia, serif;
+  font-size: 14px;
+  color: #ead8b7;
+}
+.is-playing .chronicle {
+  background: #0b20298c;
+  border-radius: 4px;
+  padding: 0 10px;
+}
+.is-playing .chronicle p {
+  color: #b5c1b9;
+  font-size: 12px;
+  border-bottom-color: #a99d7126;
+}
+.is-playing .chronicle .new-entry {
+  color: #f0deae;
+}
+.is-playing .bank {
+  background: #12272eaa;
+  border: 1px solid #8b785338;
+  border-radius: 4px;
+  padding: 12px;
+}
+.is-playing .bank .eyebrow {
+  color: #d3c193;
+}
+.is-playing .bank > div {
+  color: #d1d4be;
+}
+.is-playing .turn-prompt {
+  background: linear-gradient(#293833ec, #14252af5);
+  border: 1px solid #9d8659;
+  border-radius: 3px;
+  box-shadow:
+    0 3px 15px #0008,
+    inset 0 0 0 2px #112228;
+  font-family: Georgia, serif;
+  font-size: 16px;
+  color: #f2e3be;
+}
+.is-playing .board-hint {
+  color: #c4d5c9;
+  text-shadow: 0 1px 3px #000;
+  font-size: 11px;
+}
+.is-playing .camera-actions .icon-button {
+  border: 1px solid #b69a6266;
+  color: #e2cca1;
+  background: #27312dca;
+  border-radius: 5px;
+}
+.is-playing .hand-dock {
+  background: linear-gradient(#32382ff5, #151f23);
+  border-top: 2px solid #9c8251;
+  box-shadow:
+    0 -5px 25px #0005,
+    inset 0 3px #d8c08015;
+}
+.is-playing .hand-label .eyebrow {
+  font-family: Georgia, serif;
+  color: #d5c092;
+}
+.is-playing .resource-hand {
+  gap: 9px;
+  align-items: end;
+}
+.is-playing .resource-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  width: 76px;
+  height: 94px;
+  padding: 4px 5px 8px;
+  background: linear-gradient(140deg, #5d563c, #2c352b);
+  border: 1px solid #b6a27188;
+  border-radius: 6px 6px 3px 3px;
+  box-shadow:
+    0 4px 0 #111c20,
+    0 7px 15px #0005,
+    inset 0 0 0 2px #18252399;
+  transform-origin: 50% 100%;
+}
+.is-playing .resource-card:nth-child(1) {
+  transform: rotate(-4deg) translateY(3px);
+}
+.is-playing .resource-card:nth-child(2) {
+  transform: rotate(-2deg);
+}
+.is-playing .resource-card:nth-child(4) {
+  transform: rotate(2deg);
+}
+.is-playing .resource-card:nth-child(5) {
+  transform: rotate(4deg) translateY(3px);
+}
+.resource-sprite {
+  display: block;
+  background-image: url('/art/resource-atlas.png');
+  background-size: 200% 300%;
+  width: 62px;
+  height: 62px;
+  flex-shrink: 0;
+  mix-blend-mode: screen;
+}
+.resource-sprite > svg {
+  display: none;
+}
+.sprite-0 {
+  background-position: 0 0;
+}
+.sprite-1 {
+  background-position: 100% 0;
+}
+.sprite-2 {
+  background-position: 0 50%;
+}
+.sprite-3 {
+  background-position: 100% 50%;
+}
+.sprite-4 {
+  background-position: 0 100%;
+}
+.sprite-5 {
+  background-position: 100% 100%;
+}
+.is-playing .resource-card strong {
+  position: absolute;
+  right: 4px;
+  top: 3px;
+  font-size: 20px;
+  background: #152329e8;
+  border: 1px solid #a99258;
+  border-radius: 50%;
+  width: 26px;
+  height: 26px;
+  text-align: center;
+  line-height: 24px;
+  color: #f0ddb1;
+}
+.is-playing .resource-card > span:last-child {
+  font:
+    12px Georgia,
+    serif;
+  color: #eedfb8;
+  line-height: 1;
+}
+.is-playing .resource-card:not(:disabled):hover {
+  transform: translateY(-5px);
+  border-color: #f1dca2;
+}
+.is-playing .build-actions {
+  border-color: #ab946438;
+}
+.is-playing .build-button {
+  background: linear-gradient(#475044, #202d2d);
+  border: 1px solid #9b8b626e;
+  border-radius: 4px;
+  box-shadow:
+    inset 0 0 0 2px #17292a,
+    0 3px 5px #0005;
+  color: #e2cea4;
+}
+.is-playing .build-button.selected {
+  background: linear-gradient(#6d6749, #374232);
+  border-color: #ecd08c;
+  box-shadow:
+    0 0 12px #ebbf4d33,
+    inset 0 0 0 2px #303329;
+}
+.is-playing .build-button span {
+  font-family: Georgia, serif;
+  font-size: 13px;
+}
+.is-playing .turn-action {
+  border-color: #ab946438;
+}
+.is-playing .primary {
+  border: 1px solid #f0d897;
+  background: linear-gradient(#d5b86f, #9e7a3e);
+  border-radius: 4px;
+  box-shadow:
+    inset 0 0 0 2px #b99454,
+    0 4px 0 #4e432c;
+  font-family: Georgia, serif;
+  font-size: 16px;
+  color: #17242a;
+  text-shadow: 0 1px #efdfa480;
+}
+.is-playing .legal-locations {
+  background: #162329;
+  border-top: 1px solid #8c775141;
+  font-size: 12px;
+  color: #c8bc9b;
+}
+.game-dialog {
+  background: linear-gradient(140deg, #313b35, #17282d) !important;
+  border-color: #ad925f !important;
+  box-shadow:
+    0 0 0 3px #16262b,
+    0 0 0 4px #6a5b3b,
+    0 30px 100px #000a !important;
+}
+.fortune-card {
+  background-image:
+    linear-gradient(#14252b77, #14252b77), url('/art/resource-atlas.png');
+  background-size:
+    cover,
+    200% 300%;
+  background-position:
+    center,
+    100% 100%;
+}
+@keyframes dice-settle {
+  0% {
+    transform: translateY(-7px) rotate(-8deg);
+  }
+  40% {
+    transform: translateY(2px) rotate(5deg);
+  }
+  75% {
+    transform: translateY(-2px) rotate(-2deg);
+  }
+  100% {
+    transform: none;
+  }
+}
+@media (max-height: 800px) and (min-width: 761px) {
+  .is-playing .avatar.portrait {
+    width: 52px;
+    height: 62px;
+  }
+  .is-playing .player-card {
+    padding: 8px;
+    margin-bottom: 7px;
+  }
+  .is-playing .player-stats {
+    margin-left: 62px;
+    max-width: calc(100% - 90px);
+    margin-top: -16px;
+    font-size: 10px;
+  }
+  .is-playing .player-name strong {
+    font-size: 15px;
+  }
+  .is-playing .player-name small {
+    font-size: 10px;
+  }
+  .is-playing .awards {
+    margin-top: 9px;
+    padding-top: 8px;
+  }
+  .is-playing .resource-card {
+    height: 80px;
+  }
+  .is-playing .resource-sprite {
+    width: 52px;
+    height: 52px;
+  }
+}
+@media (max-width: 1150px) and (min-width: 761px) {
+  .is-playing .game-layout {
+    grid-template-columns: 202px minmax(0, 1fr) 0;
+  }
+  .is-playing .board-topline {
+    left: 220px;
+    right: 18px;
+  }
+  .is-playing .resource-card {
+    width: 62px;
+  }
+  .is-playing .resource-sprite {
+    width: 48px;
+    height: 48px;
+  }
+}
+@media (max-width: 760px) {
+  .is-playing .game-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .is-playing .game-layout::after {
+    background: linear-gradient(#06151c88, transparent 28%);
+  }
+  .is-playing .players-panel {
+    grid-column: 1;
+    grid-row: 1;
+    z-index: 3;
+    padding: 7px 8px 0;
+  }
+  .is-playing .table-surface {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .is-playing .board-topline {
+    left: 12px;
+    right: 12px;
+  }
+  .is-playing .player-card {
+    padding: 5px;
+    margin-bottom: 0;
+    border-radius: 4px;
+  }
+  .is-playing .player-top {
+    gap: 5px;
+    align-items: center;
+  }
+  .is-playing .avatar.portrait {
+    display: block;
+    width: 28px;
+    height: 36px;
+    border-width: 1px;
+    border-radius: 3px;
+  }
+  .portrait > span {
+    width: 12px;
+    height: 12px;
+    line-height: 10px;
+    font-size: 8px;
+    bottom: -3px;
+    left: -3px;
+  }
+  .is-playing .player-name strong {
+    font-size: 11px;
+  }
+  .is-playing .player-name small {
+    display: none;
+  }
+  .is-playing .points {
+    position: static;
+    font-size: 17px;
+    min-width: 12px;
+  }
+  .is-playing .points small {
+    font-size: 8px;
+  }
+  .is-playing .player-stats {
+    margin: 5px 0 0;
+    max-width: none;
+    gap: 8px;
+    padding-bottom: 0;
+  }
+  .is-playing .hand-dock {
+    gap: 8px;
+    padding-top: 8px;
+  }
+  .is-playing .resource-hand {
+    gap: 7px;
+  }
+  .is-playing .resource-card {
+    width: calc(20% - 7px);
+    height: 68px;
+    padding-bottom: 6px;
+  }
+  .is-playing .resource-sprite {
+    width: 45px;
+    height: 45px;
+  }
+  .is-playing .resource-card strong {
+    width: 22px;
+    height: 22px;
+    line-height: 20px;
+    font-size: 17px;
+  }
+  .is-playing .resource-card > span:last-child {
+    font-size: 11px;
+  }
+  .is-playing .build-button span {
+    font-size: 11px;
+  }
+  .is-playing .turn-action .primary {
+    font-size: 13px;
+  }
+  .is-playing .turn-prompt {
+    font-size: 13px;
+  }
+}
+@media (max-width: 380px) {
+  .is-playing .avatar.portrait {
+    width: 23px;
+    height: 32px;
+  }
+  .is-playing .player-top {
+    gap: 3px;
+  }
+  .is-playing .player-name strong {
+    font-size: 10px;
+  }
+}
+@media (max-height: 500px) and (min-width: 761px) {
+  .is-playing .resource-card {
+    height: 56px;
+    padding-bottom: 4px;
+  }
+  .is-playing .resource-sprite {
+    width: 34px;
+    height: 34px;
+  }
+  .is-playing .resource-card strong {
+    width: 20px;
+    height: 20px;
+    line-height: 18px;
+    font-size: 15px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-playing .dice-pair {
+    animation: none;
+  }
+  .is-playing .resource-card {
+    transition: none;
+  }
+}

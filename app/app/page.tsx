@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
 import { useGameTools } from '@/lib/use-game-tools';
+import { gameAudio, actionCue } from '@/lib/audio';
 import {
   Compass,
   ArrowRight,
@@ -61,23 +62,6 @@ const Board = dynamic(() => import('@/components/board'), {
 });
 const icons = [TreePine, BrickWall, Cloud, Wheat, Mountain],
   storageKey = 'conquist-local-v1';
-function sound(enabled: boolean) {
-  if (!enabled) return;
-  try {
-    const ctx = new AudioContext(),
-      osc = ctx.createOscillator(),
-      gain = ctx.createGain();
-    osc.frequency.setValueAtTime(520, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(260, ctx.currentTime + 0.14);
-    gain.gain.setValueAtTime(0.035, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.2);
-    osc.onended = () => void ctx.close();
-  } catch {}
-}
 export default function Home() {
   const [game, setGame] = useState<Game>(() => createGame(42817)),
     [playing, setPlaying] = useState(false),
@@ -88,7 +72,8 @@ export default function Home() {
     >(null),
     [view, setView] = useState(0),
     [lite, setLite] = useState(false),
-    [audio, setAudio] = useState(false),
+    [audio, setAudio] = useState(true),
+    [volume, setVolume] = useState(0.55),
     [notice, setNotice] = useState(''),
     [give, setGive] = useState(0),
     [want, setWant] = useState(3),
@@ -98,6 +83,33 @@ export default function Home() {
     [cardSecond, setCardSecond] = useState(3),
     [seed, setSeed] = useState('42817'),
     [handoff, setHandoff] = useState(false);
+  useEffect(() => {
+    gameAudio.setEnabled(audio);
+    gameAudio.setVolume(volume);
+    gameAudio.setActive(playing);
+  }, [audio, volume, playing]);
+  useEffect(() => {
+    const unlock = () => {
+      void gameAudio.unlock(audio);
+    };
+    document.addEventListener('pointerdown', unlock);
+    document.addEventListener('keydown', unlock);
+    return () => {
+      document.removeEventListener('pointerdown', unlock);
+      document.removeEventListener('keydown', unlock);
+    };
+  }, [audio]);
+  useEffect(() => {
+    const visibility = () => {
+      if (document.hidden) gameAudio.pause();
+      else gameAudio.resume();
+    };
+    document.addEventListener('visibilitychange', visibility);
+    return () => {
+      document.removeEventListener('visibilitychange', visibility);
+      gameAudio.setActive(false);
+    };
+  }, []);
   useEffect(() => {
     try {
       const s = localStorage.getItem(storageKey);
@@ -141,7 +153,7 @@ export default function Home() {
           setHandoff(true);
         setBuild(null);
         setNotice('');
-        sound(audio);
+        if (audio) gameAudio.play(next.phase === 'over' ? 'win' : actionCue(a));
       } catch (e) {
         setNotice(e instanceof Error ? e.message : 'Unable to make that move.');
       }
@@ -379,7 +391,12 @@ export default function Home() {
                   style={{ '--player': COLORS[i] } as React.CSSProperties}
                 >
                   <div className="player-top">
-                    <div className="avatar">{['◆', '◈', '▲', '✦'][i]}</div>
+                    <div
+                      className={`avatar portrait portrait-${i}`}
+                      aria-hidden="true"
+                    >
+                      <span>{['◆', '◈', '▲', '✦'][i]}</span>
+                    </div>
                     <div className="player-name">
                       <strong>{p.name}</strong>
                       <small>
@@ -494,7 +511,10 @@ export default function Home() {
                 <Compass size={15} />
               </div>
               <div className="dice-box">
-                <div className="dice-pair">
+                <div
+                  className="dice-pair"
+                  key={`${game.turn}-${game.dice.join('-')}`}
+                >
                   {(game.dice.length ? game.dice : [0, 0]).map((d, i) => (
                     <div
                       className={`die d${d}`}
@@ -594,7 +614,12 @@ export default function Home() {
                     }
                     aria-label={`${r}: ${handoff ? 'hidden' : player.resources[i]}${game.phase === 'discard' ? ', discard one' : ''}`}
                   >
-                    <Icon size={26} />
+                    <span
+                      className={`resource-sprite sprite-${i}`}
+                      aria-hidden="true"
+                    >
+                      <Icon size={26} />
+                    </span>
                     <strong>{handoff ? '?' : player.resources[i]}</strong>
                     <span>{r}</span>
                   </button>
@@ -840,9 +865,20 @@ export default function Home() {
                 className="setting-toggle"
                 onClick={() => setAudio(!audio)}
               >
-                <span>Game sounds</span>
+                <span>Sound & ocean ambience</span>
                 <b>{audio ? 'On' : 'Off'}</b>
               </button>
+              <label className="field">
+                Volume · {Math.round(volume * 100)}%
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step=".05"
+                  value={volume}
+                  onChange={(event) => setVolume(Number(event.target.value))}
+                />
+              </label>
               <button
                 className="primary"
                 onClick={() => {

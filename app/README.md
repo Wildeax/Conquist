@@ -17,7 +17,8 @@ npm run build
 
 ## Current implementation
 
-- Original Three.js terrain and pieces, orbit camera, shadows and Lite graphics.
+- Textured Three.js terrain, seven original model types with GLB exports, animated ocean, wind, smoke, ships and birds; orbit camera, shadows and Lite graphics.
+- Portrait banners, illustrated resource cards, compact fantasy HUD, layered action sounds and ocean ambience with volume controls.
 - Seeded 19-tile island, 54 vertices, 72 edges and harbour rates.
 - Snake setup, production, building costs, finite bank, trading, Raider and discards.
 - Five Fortune card types, Grand Route, High Command and 10-point victory.
