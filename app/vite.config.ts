@@ -35,6 +35,14 @@ const localBindingConfig = {
 };
 
 export default defineConfig(async () => {
+  // The local alpha has no server APIs. Export it for nginx on the shared VPS,
+  // while preserving the existing Sites and local development targets.
+  if (process.env.CONQUIST_TARGET === 'vps') {
+    return {
+      css: { postcss: { plugins: [tailwindcss()] } },
+      plugins: [vinext()],
+    };
+  }
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
   // settings; application environment belongs in ignored `.env*` files.
   process.env.WRANGLER_WRITE_LOGS ??= 'false';

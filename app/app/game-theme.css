@@ -1,3 +1,117 @@
+/* The menu uses the same viewport budget as the game. */
+.conquist:not(.is-playing) {
+  height: 100dvh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.conquist:not(.is-playing) .topbar {
+  height: clamp(52px, 10dvh, 84px);
+  flex-shrink: 0;
+}
+.conquist:not(.is-playing) .welcome {
+  flex: 1;
+  min-height: 0;
+  padding: 14px 7.5% 48px;
+  overflow-y: auto; /* Accessibility fallback for extreme zoom or tiny windows. */
+}
+.welcome .welcome-content {
+  margin: auto 0;
+  width: min(100%, 500px);
+}
+.welcome h1 {
+  font-size: clamp(34px, min(5.7vw, 8.6dvh), 88px);
+  margin: clamp(10px, 2dvh, 26px) 0;
+}
+.welcome-content > p {
+  line-height: 1.5;
+  margin: 0;
+}
+.welcome .start-actions {
+  margin-top: clamp(12px, 2.4dvh, 30px);
+  gap: 8px;
+}
+.welcome .play-button {
+  min-height: 46px;
+}
+.welcome .secondary {
+  padding: 10px 18px;
+}
+.welcome .learn-link {
+  margin-top: clamp(12px, 2dvh, 26px);
+}
+.welcome .menu-footer {
+  padding: 14px 3%;
+}
+.welcome .island-caption {
+  bottom: 65px;
+}
+@media (max-width: 760px) {
+  .conquist:not(.is-playing) .welcome {
+    padding: 12px 24px 48px;
+  }
+  .welcome h1 {
+    font-size: clamp(32px, min(11vw, 7.5dvh), 62px);
+  }
+  .welcome .menu-footer {
+    letter-spacing: 0;
+    font-size: 10px;
+    gap: 12px;
+  }
+}
+@media (max-height: 560px) and (min-width: 600px) {
+  .welcome .welcome-content {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
+    column-gap: 32px;
+    width: min(100%, 800px);
+    max-width: 800px;
+  }
+  .welcome-content .eyebrow,
+  .welcome-content h1,
+  .welcome-content > p {
+    grid-column: 1;
+  }
+  .welcome-content .start-actions {
+    grid-column: 2;
+    grid-row: 1 / 4;
+    align-self: center;
+    margin: 0;
+  }
+  .welcome-content .learn-link {
+    grid-column: 2;
+    margin-top: 10px;
+  }
+  .welcome .island-caption {
+    display: none;
+  }
+  .welcome h1 {
+    font-size: clamp(30px, 8dvh, 44px);
+  }
+}
+@media (max-height: 620px) and (max-width: 599px) {
+  .welcome .eyebrow,
+  .welcome .menu-footer {
+    display: none;
+  }
+  .conquist:not(.is-playing) .welcome {
+    padding-bottom: 12px;
+  }
+  .welcome h1 {
+    margin: 8px 0;
+    font-size: 30px;
+    line-height: 1.02;
+  }
+  .welcome .start-actions {
+    margin-top: 10px;
+    gap: 6px;
+  }
+  .welcome .secondary span {
+    display: inline;
+    margin-left: 8px;
+  }
+}
+
 /* Game HUD: the island is the scene; controls sit over it. */
 .is-playing {
   background: #102d37;

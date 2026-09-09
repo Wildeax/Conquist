@@ -24,6 +24,10 @@ Generation prompts:
 
 > Resources: Use case: stylized-concept. Asset type: fantasy videogame resource sprite atlas with actual transparent alpha background. Generate ONE image exactly 1024x1536 pixels. Exact 2 columns by 3 rows of equal 512x512 cells with NO visible grid. Transparent background, centered isolated 3D painted game inventory objects, each occupies central 65% of its cell without overlap. Row 1 left: bundle of timber logs. Row 1 right: stack of orange clay bricks. Row 2 left: cream wool bundle. Row 2 right: golden wheat sheaf. Row 3 left: basalt stone cluster. Row 3 right: ancient gold-trimmed fortune card with compass sigil. Consistent warm key light from upper-left. Actual transparent background, not white and not a painted checkerboard. No lettering, labels, numbers, frames, watermarks, or shadows outside cells. Exactly six distinct objects in the precise stated positions, entirely isolated with generous transparent spacing.
 
+## Water refinement
+
+Water revision: replaced directional sine stripes with drifting, rotated noise layers, pixel-footprint filtering, softer glints and broken shoreline foam. The reflectance treatment follows the [official Three.js Water implementation](https://github.com/mrdoob/three.js/blob/dev/examples/jsm/objects/Water.js). This remains a custom single-pass shader, not the full reflective Water addon. The enlarged ocean fades to the exact background color before its boundary or the camera's far clipping plane becomes visible.
+
 ## Audio
 
 `lib/audio.ts` synthesizes original layered dice rattles, construction impacts, trade chimes, Fortune flourishes, Raider bass, turn bells and victory notes. Filtered noise and a slow modulation oscillator provide ocean ambience. No external audio samples are used. Audio starts only after user interaction, supports mute and volume, and suspends when the tab is hidden.

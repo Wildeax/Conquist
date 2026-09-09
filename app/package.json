@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "vinext dev",
     "build": "vinext build",
+    "build:vps": "node tools/build-vps.mjs",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",
     "test": "node --experimental-strip-types --test packages/rules/*.test.ts lib/scene/*.test.ts",

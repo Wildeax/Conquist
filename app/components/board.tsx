@@ -10,6 +10,7 @@ import {
 } from '@/packages/rules/game';
 import { createEnvironment } from '@/lib/scene/environment';
 import { createModel, part } from '@/lib/scene/models';
+import { OCEAN_HORIZON } from '@/lib/scene/water';
 type Props = {
   game: Game;
   actions: Action[];
@@ -94,9 +95,9 @@ export default function Board({ game, actions, onAction, view, lite }: Props) {
     );
     el.appendChild(renderer.domElement);
     const scene = new T.Scene();
-    scene.background = new T.Color('#102e39');
+    scene.background = new T.Color(OCEAN_HORIZON);
     scene.fog = new T.FogExp2('#173641', 0.023);
-    const camera = new T.PerspectiveCamera(36, 1, 0.1, 150);
+    const camera = new T.PerspectiveCamera(36, 1, 0.1, 350);
     camera.position.set(0, 9.7, 12);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = !reduced;
