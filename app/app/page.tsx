@@ -254,7 +254,7 @@ export default function Home() {
       );
   }
   return (
-    <main className="conquist">
+    <main className={`conquist${playing ? ' is-playing' : ''}`}>
       <header className="topbar">
         <button
           className="brand"

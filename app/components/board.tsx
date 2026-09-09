@@ -19,6 +19,14 @@ type Props = {
 };
 const terrain = ['#386d4b', '#ba6945', '#8ba75b', '#d3ae53', '#707a8d'];
 const Y = 0.18;
+function fitBoard(camera: THREE.PerspectiveCamera, controls: OrbitControls) {
+  const halfFov = Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * Math.min(camera.aspect, 1));
+  const distance = 5.7 / Math.sin(halfFov);
+  camera.position.sub(controls.target).normalize().multiplyScalar(distance).add(controls.target);
+  controls.minDistance = distance * 0.55;
+  controls.maxDistance = distance * 1.8;
+  controls.update();
+}
 function mesh(
   geo: THREE.BufferGeometry,
   color: string,
@@ -439,6 +447,7 @@ export default function Board({ game, actions, onAction, view, lite }: Props) {
       renderer.setSize(el.clientWidth, el.clientHeight);
       camera.aspect = el.clientWidth / el.clientHeight;
       camera.updateProjectionMatrix();
+      fitBoard(camera, controls);
     };
     const observer = new ResizeObserver(resize);
     observer.observe(el);
@@ -550,7 +559,7 @@ export default function Board({ game, actions, onAction, view, lite }: Props) {
     const rt = runtime.current;
     if (rt) {
       rt.camera.position.set(0, view % 2 ? 14 : 10, view % 2 ? 1 : 11.2);
-      rt.controls.update();
+      fitBoard(rt.camera, rt.controls);
     }
   }, [view]);
   return (
