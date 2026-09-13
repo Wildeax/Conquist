@@ -15,7 +15,8 @@ import {
   useLocalCosmetics,
 } from '@/components/cosmetics-picker';
 import { DEFAULT_LOADOUT } from '@/lib/cosmetics';
-import { TradePost } from '@/components/trade-post';
+import { TablePanel } from '@/components/table-panel';
+import { PublicTradeComposer } from '@/components/resource-bundle';
 import { OnlineLobby } from '@/components/online-lobby';
 import {
   Compass,
@@ -90,6 +91,7 @@ export default function Home() {
   const sendOnline = online.send;
   const onlineSeed = online.view?.game?.seed;
   const [roomMenu, setRoomMenu] = useState(false);
+  const [candidate, setCandidate] = useState<Action | null>(null);
   const [localGame, setGame] = useState<Game>(() => createGame(42817)),
     [localPlaying, setPlaying] = useState(false),
     [saved, setSaved] = useState<Game | null>(null),
@@ -195,7 +197,8 @@ export default function Home() {
     feedbackRoot,
     {
       game,
-      playing,
+      hands: network ? online.view?.hands : undefined,
+      playing: playing && (!network || online.connected),
       viewer,
       match: network ? online.session!.code : `local:${game.seed}`,
       revision: network ? (online.view?.revision ?? 0) : localFeedback.revision,
@@ -268,16 +271,28 @@ export default function Home() {
         : [];
   }, [all, build, bot, handoff, playing, game.phase, game.freeRoads]);
   useGameTools(game, playing && !network, bot || handoff, act);
+  const preview =
+    (candidate &&
+      selectable.find(
+        (a) => JSON.stringify(a) === JSON.stringify(candidate),
+      )) ||
+    null;
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setBuild(null);
+        setCandidate(null);
+      }
+    };
+    window.addEventListener('keydown', escape);
+    return () => window.removeEventListener('keydown', escape);
+  }, []);
   const onBoardAction = (a: Action) => {
-    if (
-      a.type === 'raider' &&
-      all.filter((b) => b.type === 'raider' && b.id === a.id).length > 1
-    ) {
-      setNotice(
-        'Choose which neighbour to take a card from using Legal locations below.',
-      );
+    if (a.type === 'raider') {
+      setCandidate(a);
       return;
     }
+    setCandidate(null);
     act(a);
   };
   function start(hotseat = false) {
@@ -287,6 +302,7 @@ export default function Home() {
     setLocalFeedback({ revision: 0, move: null });
     setPlaying(true);
     setBuild(null);
+    setCandidate(null);
     setHandoff(false);
     setModal(null);
   }
@@ -309,14 +325,14 @@ export default function Home() {
                 ? `${game.players[actor].name} ${botThought}`
                 : game.phase === 'setup-settlement'
                   ? `Place your ${game.setup < 4 ? 'first' : 'second'} settlement`
-                  : game.phase === 'setup-road'
+                  : game.phase === 'setup-road' || game.freeRoads
                     ? 'Build a road from your new settlement'
                     : game.phase === 'roll'
                       ? 'Your turn. Roll the dice.'
                       : game.phase === 'discard'
                         ? `Discard ${game.discard[actor]} resource cards`
                         : game.phase === 'raider'
-                          ? 'Move the Raider to another tile'
+                          ? 'Move the Raider (robber), then choose whom to steal from'
                           : build
                             ? `Choose a glowing location for your ${build}`
                             : 'Trade, build, or draw your next Fortune.';
@@ -397,15 +413,6 @@ export default function Home() {
         <output className="notice" role="alert">
           {online.error}
         </output>
-      )}
-      {network && playing && !modal && !roomMenu && online.view?.offer && (
-        <TradePost
-          offer={online.view.offer}
-          game={game}
-          viewer={viewer}
-          disabled={online.busy || !online.connected}
-          send={online.send}
-        />
       )}
       <output
         className="feedback-status"
@@ -532,104 +539,6 @@ export default function Home() {
       ) : (
         <>
           <div className="game-layout">
-            <aside className="players-panel">
-              <div className="panel-heading">
-                <span>THE TABLE</span>
-                <span>
-                  {game.target} <Trophy size={13} />
-                </span>
-              </div>
-              {game.players.map((p, i) => (
-                <div
-                  className={`player-card ${game.active === i ? 'active' : ''}`}
-                  data-player={i}
-                  data-profile-skin={
-                    network
-                      ? online.view?.cosmetics?.[i]?.profile
-                      : i === viewer
-                        ? loadout.profile
-                        : 'profile.classic'
-                  }
-                  key={i}
-                  style={{ '--player': COLORS[i] } as React.CSSProperties}
-                >
-                  <div className="player-top">
-                    <div
-                      className={`avatar portrait portrait-${i}`}
-                      aria-hidden="true"
-                    >
-                      <span>{['◆', '◈', '▲', '✦'][i]}</span>
-                    </div>
-                    <div className="player-name">
-                      <strong>{p.name}</strong>
-                      <small>
-                        {network
-                          ? `${i === viewer ? 'You' : 'Online player'} · ${online.view?.seats[i]?.online ? 'Connected' : 'Reconnecting'}`
-                          : p.bot
-                            ? 'Island rival'
-                            : local
-                              ? 'Local player'
-                              : 'Your expedition'}
-                      </small>
-                    </div>
-                    <strong className="points">
-                      {network
-                        ? online.view?.points[i]
-                        : score(game, i, i !== viewer && game.phase !== 'over')}
-                      <small>VP</small>
-                    </strong>
-                  </div>
-                  <div className="player-stats">
-                    <span title="Resource cards">
-                      <span className="tiny-cards" />{' '}
-                      {network ? online.view?.hands[i] : hand(game, i)}
-                    </span>
-                    <span title="Roads">
-                      <Route size={14} />{' '}
-                      {game.edges.filter((e) => e.owner === i).length}
-                    </span>
-                    <span title="Guards">
-                      <Flag size={14} /> {p.guards}
-                    </span>
-                    {game.active === i && (
-                      <span className="turn-tag">TURN</span>
-                    )}
-                  </div>
-                </div>
-              ))}
-              <div className="awards">
-                <div>
-                  <Route size={19} />
-                  <span>
-                    Grand Route
-                    <small>
-                      {game.route === null
-                        ? '5 connected roads'
-                        : game.players[game.route].name +
-                          ' · ' +
-                          routeLength(game, game.route) +
-                          ' roads'}
-                    </small>
-                  </span>
-                  <b>+2</b>
-                </div>
-                <div>
-                  <Flag size={19} />
-                  <span>
-                    High Command
-                    <small>
-                      {game.command === null
-                        ? 'Play 3 Guards'
-                        : game.players[game.command].name}
-                    </small>
-                  </span>
-                  <b>+2</b>
-                </div>
-              </div>
-              <button className="rules-link" onClick={() => setModal('rules')}>
-                <BookOpen size={15} /> Rules & build costs
-              </button>
-            </aside>
             <section className="table-surface" aria-label="Game board">
               <div className="board-topline">
                 <div>
@@ -662,94 +571,272 @@ export default function Home() {
                 reducedMotion={feedback.reduced}
                 actions={selectable}
                 onAction={onBoardAction}
+                onPreview={setCandidate}
+                preview={preview}
                 view={view}
                 lite={lite}
               />
               <div className="board-hint">
                 <span className="hint-dot" />
                 {build
-                  ? 'Click a highlighted location'
+                  ? 'Choose a highlighted location. Escape cancels.'
                   : 'Drag to orbit · Scroll to zoom'}
               </div>
               <div className="turn-prompt" aria-live="polite">
                 <span style={{ background: COLORS[actor] }} />
                 {message}
               </div>
+              {!bot &&
+                !handoff &&
+                (preview ||
+                  build ||
+                  game.freeRoads > 0 ||
+                  game.phase.startsWith('setup') ||
+                  game.phase === 'raider') && (
+                  <section
+                    className="placement-panel"
+                    aria-label="Placement controls"
+                  >
+                    <strong>
+                      {preview
+                        ? preview.type === 'raider'
+                          ? 'Choose whom to steal from'
+                          : `Confirm ${preview.type} placement`
+                        : game.phase === 'setup-road' || game.freeRoads
+                          ? 'Place a road beside your new settlement'
+                          : game.phase === 'setup-settlement'
+                            ? `Place your ${game.setup < 4 ? 'first' : 'second'} settlement`
+                            : build
+                              ? `Place your ${build}`
+                              : 'Move the Raider to block a resource tile'}
+                    </strong>
+                    <p>
+                      {preview
+                        ? 'Choose an action below, or select a different location.'
+                        : 'Glowing locations are legal. Hover to preview; tap to preview on touch screens.'}
+                    </p>
+                    {preview?.type === 'raider' ? (
+                      <div className="victim-choices">
+                        {all
+                          .filter(
+                            (a) => a.type === 'raider' && a.id === preview.id,
+                          )
+                          .map(
+                            (a, i) =>
+                              a.type === 'raider' && (
+                                <button
+                                  key={i}
+                                  className="primary"
+                                  onClick={() => {
+                                    setCandidate(null);
+                                    act(a);
+                                  }}
+                                >
+                                  {a.victim === undefined ? (
+                                    'Move here · no cards to steal'
+                                  ) : (
+                                    <>
+                                      <span
+                                        className={`avatar portrait portrait-${a.victim}`}
+                                      />
+                                      Steal from {game.players[a.victim].name}
+                                    </>
+                                  )}
+                                </button>
+                              ),
+                          )}
+                      </div>
+                    ) : (
+                      preview && (
+                        <button
+                          className="primary"
+                          onClick={() => {
+                            setCandidate(null);
+                            act(preview);
+                          }}
+                        >
+                          Confirm {preview.type}
+                        </button>
+                      )
+                    )}
+                    {(build || preview) && (
+                      <button
+                        className="secondary"
+                        onClick={() => {
+                          setBuild(null);
+                          setCandidate(null);
+                        }}
+                      >
+                        Cancel selection · Esc
+                      </button>
+                    )}
+                  </section>
+                )}
             </section>
-            <aside className="activity-panel">
-              <div className="panel-heading">
-                <span>ISLAND CHRONICLE</span>
-                <Compass size={15} />
-              </div>
-              <div className="dice-box">
-                <div
-                  className="dice-pair"
-                  key={`${game.turn}-${game.dice.join('-')}`}
-                >
-                  {(game.dice.length ? game.dice : [0, 0]).map((d, i) => (
-                    <div
-                      className={`die d${d}`}
-                      key={i}
-                      aria-label={`Die ${i + 1}: ${d || 'not rolled'}`}
-                    >
-                      {d ? (
-                        Array.from({ length: 9 }, (_, n) => (
-                          <i
-                            key={n}
-                            className={
-                              (
-                                [
-                                  [],
-                                  [4],
-                                  [0, 8],
-                                  [0, 4, 8],
-                                  [0, 2, 6, 8],
-                                  [0, 2, 4, 6, 8],
-                                  [0, 2, 3, 5, 6, 8],
-                                ][d] as number[]
-                              ).includes(n)
-                                ? 'pip'
-                                : 'blank'
-                            }
-                          />
-                        ))
-                      ) : (
-                        <span>?</span>
+            <aside
+              className="table-sidebar"
+              aria-label="Players and table panels"
+            >
+              <aside className="players-panel">
+                <div className="panel-heading">
+                  <span>THE TABLE</span>
+                  <span>
+                    {game.target} <Trophy size={13} />
+                  </span>
+                </div>
+                {game.players.map((p, i) => (
+                  <div
+                    className={`player-card ${game.active === i ? 'active' : ''}`}
+                    data-player={i}
+                    data-profile-skin={
+                      network
+                        ? online.view?.cosmetics?.[i]?.profile
+                        : i === viewer
+                          ? loadout.profile
+                          : 'profile.classic'
+                    }
+                    key={i}
+                    style={{ '--player': COLORS[i] } as React.CSSProperties}
+                  >
+                    <span
+                      className="player-gain"
+                      data-player-gain
+                      aria-live="polite"
+                    />
+                    <div className="player-top">
+                      <div
+                        className={`avatar portrait portrait-${i}`}
+                        aria-hidden="true"
+                      >
+                        <span>{['◆', '◈', '▲', '✦'][i]}</span>
+                      </div>
+                      <div className="player-name">
+                        <strong>{p.name}</strong>
+                        <small>
+                          {network
+                            ? `${i === viewer ? 'You' : 'Online player'} · ${online.view?.seats[i]?.online ? 'Connected' : 'Reconnecting'}`
+                            : p.bot
+                              ? 'Island rival'
+                              : local
+                                ? 'Local player'
+                                : 'Your expedition'}
+                        </small>
+                      </div>
+                      <strong className="points">
+                        {network
+                          ? online.view?.points[i]
+                          : score(
+                              game,
+                              i,
+                              i !== viewer && game.phase !== 'over',
+                            )}
+                        <small>VP</small>
+                      </strong>
+                    </div>
+                    <div className="player-stats">
+                      <span title="Resource cards">
+                        <span className="tiny-cards" />{' '}
+                        {network ? online.view?.hands[i] : hand(game, i)}
+                      </span>
+                      <span title="Roads">
+                        <Route size={14} />{' '}
+                        {game.edges.filter((e) => e.owner === i).length}
+                      </span>
+                      <span title="Guards">
+                        <Flag size={14} /> {p.guards}
+                      </span>
+                      {game.active === i && (
+                        <span className="turn-tag">TURN</span>
                       )}
                     </div>
-                  ))}
-                </div>
-                <span>
-                  {game.dice.length
-                    ? `${game.dice[0] + game.dice[1]} rolled`
-                    : 'The island awaits'}
-                </span>
-              </div>
-              <div className="chronicle" role="log" aria-label="Game history">
-                {game.log.slice(0, 12).map((entry, i) => (
-                  <p
-                    key={`${entry}-${i}`}
-                    className={i === 0 ? 'new-entry' : ''}
-                  >
-                    <span />
-                    {entry}
-                  </p>
+                  </div>
                 ))}
-              </div>
-              <div className="bank">
-                <span className="eyebrow">BANK RESERVES</span>
-                <div>
-                  {game.bank.map((n, i) => {
-                    const Icon = icons[i];
-                    return (
-                      <span key={i} title={RESOURCES[i]}>
-                        <Icon size={16} />
-                        {n}
-                      </span>
-                    );
-                  })}
+                <div className="awards">
+                  <div>
+                    <Route size={19} />
+                    <span>
+                      Grand Route
+                      <small>
+                        {game.route === null
+                          ? '5 connected roads'
+                          : game.players[game.route].name +
+                            ' · ' +
+                            routeLength(game, game.route) +
+                            ' roads'}
+                      </small>
+                    </span>
+                    <b>+2</b>
+                  </div>
+                  <div>
+                    <Flag size={19} />
+                    <span>
+                      High Command
+                      <small>
+                        {game.command === null
+                          ? 'Play 3 Guards'
+                          : game.players[game.command].name}
+                      </small>
+                    </span>
+                    <b>+2</b>
+                  </div>
                 </div>
-              </div>
+                <button
+                  className="rules-link"
+                  onClick={() => setModal('rules')}
+                >
+                  <BookOpen size={15} /> Rules & build costs
+                </button>
+              </aside>
+              <TablePanel
+                key={online.session?.code ?? 'local'}
+                online={online}
+                game={game}
+                viewer={viewer}
+                canPost={
+                  !bot && !handoff && game.phase === 'main' && !game.freeRoads
+                }
+                openTrade={() => {
+                  if (network) setPartner(-2);
+                  setModal('trade');
+                }}
+                activity={
+                  <aside className="activity-panel">
+                    <div className="panel-heading">
+                      <span>ISLAND CHRONICLE</span>
+                      <Compass size={15} />
+                    </div>
+                    <div
+                      className="chronicle"
+                      role="log"
+                      aria-label="Game history"
+                    >
+                      {game.log.slice(0, 12).map((entry, i) => (
+                        <p
+                          key={`${entry}-${i}`}
+                          className={i === 0 ? 'new-entry' : ''}
+                        >
+                          <span />
+                          {entry}
+                        </p>
+                      ))}
+                    </div>
+                    <div className="bank">
+                      <span className="eyebrow">BANK RESERVES</span>
+                      <div>
+                        {game.bank.map((n, i) => {
+                          const Icon = icons[i];
+                          return (
+                            <span key={i} title={RESOURCES[i]}>
+                              <Icon size={16} />
+                              {n}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </aside>
+                }
+              />
             </aside>
           </div>
           <section className="hand-dock" aria-label="Resources and actions">
@@ -818,10 +905,44 @@ export default function Home() {
                   className={`build-button ${build === key ? 'selected' : ''}`}
                   key={key}
                   disabled={bot || handoff || !all.some((a) => a.type === key)}
-                  onClick={() => setBuild(build === key ? null : key)}
+                  onClick={() => {
+                    setCandidate(null);
+                    setBuild(build === key ? null : key);
+                  }}
                 >
                   <Icon size={21} />
                   <span>{name}</span>
+                  <span className="build-cost" aria-label={`${name} cost`}>
+                    {COSTS[key].map((n, i) => {
+                      const ResourceIcon = icons[i];
+                      return (
+                        n > 0 && (
+                          <span
+                            key={i}
+                            className={player.resources[i] < n ? 'missing' : ''}
+                            title={`${n} ${RESOURCES[i]}`}
+                          >
+                            <ResourceIcon size={12} />
+                            {n}
+                          </span>
+                        )
+                      );
+                    })}
+                  </span>
+                  <small>
+                    {game.phase.startsWith('setup')
+                      ? 'Setup placement'
+                      : bot || handoff || game.phase !== 'main'
+                        ? 'Not available now'
+                        : COSTS[key].some((n, i) => player.resources[i] < n) &&
+                            !(key === 'road' && game.freeRoads)
+                          ? 'Missing cards'
+                          : !all.some((a) => a.type === key)
+                            ? 'No legal location'
+                            : game.freeRoads && key === 'road'
+                              ? 'Free road'
+                              : 'Build now'}
+                  </small>
                 </button>
               ))}
               <button
@@ -860,7 +981,16 @@ export default function Home() {
                   }
                   onClick={endTurn}
                 >
-                  End turn <ArrowRight size={18} />
+                  {bot || handoff
+                    ? 'Waiting for player'
+                    : game.phase === 'setup-settlement'
+                      ? 'Place a settlement'
+                      : game.phase === 'setup-road' || game.freeRoads
+                        ? 'Place a road'
+                        : game.phase === 'raider'
+                          ? 'Move the Raider'
+                          : 'End turn'}{' '}
+                  <ArrowRight size={18} />
                 </button>
               )}
               <small>
@@ -891,7 +1021,7 @@ export default function Home() {
               </summary>
               <div>
                 {selectable.map((a, i) => (
-                  <button key={i} onClick={() => act(a)}>
+                  <button key={i} onClick={() => onBoardAction(a)}>
                     {a.type} {'id' in a ? a.id + 1 : ''}
                     {a.type === 'raider' && a.victim !== undefined
                       ? ` · take from ${game.players[a.victim].name}`
@@ -1147,84 +1277,108 @@ export default function Home() {
                       ),
                   )}
               </div>
-              <div className="trade-picker">
-                {(['give', 'want'] as const).map((side) => (
-                  <fieldset key={side}>
-                    <legend>
-                      {side === 'give' ? 'You give' : 'You receive'}
-                    </legend>
-                    <div className="trade-resources">
-                      {RESOURCES.map((resource, i) => {
-                        const Icon = icons[i];
-                        const amount =
-                          side === 'give' && partner === -1
-                            ? rate(game, viewer, i)
-                            : 1;
-                        const unavailable =
-                          side === 'give'
-                            ? player.resources[i] < amount
-                            : i === give;
-                        return (
-                          <button
-                            key={resource}
-                            type="button"
-                            aria-pressed={(side === 'give' ? give : want) === i}
-                            disabled={unavailable}
-                            onClick={() =>
-                              side === 'give' ? setGive(i) : setWant(i)
-                            }
-                          >
-                            <Icon size={22} />
-                            <strong>
-                              {amount} {resource}
-                            </strong>
-                            <small>
-                              {side === 'give'
-                                ? `${player.resources[i]} in hand`
-                                : partner === -1
-                                  ? `${game.bank[i]} in bank`
-                                  : 'Request from players'}
-                            </small>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </fieldset>
-                ))}
-              </div>
-              <p className="trade-summary">
-                Give {partner === -1 ? rate(game, viewer, give) : 1}{' '}
-                {RESOURCES[give]} <ArrowRight size={16} /> Receive 1{' '}
-                {RESOURCES[want]}
-              </p>
-              <p className="muted">
-                {partner === -1
-                  ? 'Your best harbour rate is applied automatically.'
-                  : network
-                    ? 'Open until your turn ends. Players join, then you choose who to trade with. You can keep building while you wait.'
-                    : local
-                      ? 'The other player must agree before resources change hands.'
-                      : 'Your opponent may accept or decline this offer.'}
-              </p>
-              {notice && <output>{notice}</output>}
-              <button
-                className="primary"
-                disabled={!validTrade}
-                onClick={trade}
-              >
-                {partner === -1
-                  ? 'Trade with bank'
-                  : network
-                    ? 'Post for everyone'
-                    : 'Offer trade'}{' '}
-                <ArrowLeftRight size={18} />
-              </button>
-              {!validTrade && (
-                <p className="muted">
-                  {network && partner !== -1 && online.view?.offer
-                    ? 'You already have a public post. Cancel it to post a different trade.'
-                    : 'Choose different resources. You need enough cards to give, and bank trades need stock in the bank.'}
-                </p>
+              {network && partner !== -1 ? (
+                <PublicTradeComposer
+                  resources={player.resources}
+                  disabled={
+                    bot ||
+                    !!online.view?.offer ||
+                    game.phase !== 'main' ||
+                    !!game.freeRoads
+                  }
+                  post={(giveCards, wantCards) => {
+                    void online.send({
+                      type: 'post-offer',
+                      giveCards,
+                      wantCards,
+                    });
+                    setModal(null);
+                  }}
+                />
+              ) : (
+                <>
+                  <div className="trade-picker">
+                    {(['give', 'want'] as const).map((side) => (
+                      <fieldset key={side}>
+                        <legend>
+                          {side === 'give' ? 'You give' : 'You receive'}
+                        </legend>
+                        <div className="trade-resources">
+                          {RESOURCES.map((resource, i) => {
+                            const Icon = icons[i];
+                            const amount =
+                              side === 'give' && partner === -1
+                                ? rate(game, viewer, i)
+                                : 1;
+                            const unavailable =
+                              side === 'give'
+                                ? player.resources[i] < amount
+                                : i === give;
+                            return (
+                              <button
+                                key={resource}
+                                type="button"
+                                aria-pressed={
+                                  (side === 'give' ? give : want) === i
+                                }
+                                disabled={unavailable}
+                                onClick={() =>
+                                  side === 'give' ? setGive(i) : setWant(i)
+                                }
+                              >
+                                <Icon size={22} />
+                                <strong>
+                                  {amount} {resource}
+                                </strong>
+                                <small>
+                                  {side === 'give'
+                                    ? `${player.resources[i]} in hand`
+                                    : partner === -1
+                                      ? `${game.bank[i]} in bank`
+                                      : 'Request from players'}
+                                </small>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </fieldset>
+                    ))}
+                  </div>
+                  <p className="trade-summary">
+                    Give {partner === -1 ? rate(game, viewer, give) : 1}{' '}
+                    {RESOURCES[give]} <ArrowRight size={16} /> Receive 1{' '}
+                    {RESOURCES[want]}
+                  </p>
+                  <p className="muted">
+                    {partner === -1
+                      ? 'Your best harbour rate is applied automatically.'
+                      : network
+                        ? 'Open until your turn ends. Players join, then you choose who to trade with. You can keep building while you wait.'
+                        : local
+                          ? 'The other player must agree before resources change hands.'
+                          : 'Your opponent may accept or decline this offer.'}
+                  </p>
+                  {notice && <output>{notice}</output>}
+                  <button
+                    className="primary"
+                    disabled={!validTrade}
+                    onClick={trade}
+                  >
+                    {partner === -1
+                      ? 'Trade with bank'
+                      : network
+                        ? 'Post for everyone'
+                        : 'Offer trade'}{' '}
+                    <ArrowLeftRight size={18} />
+                  </button>
+                  {!validTrade && (
+                    <p className="muted">
+                      {network && partner !== -1 && online.view?.offer
+                        ? 'You already have a public post. Cancel it to post a different trade.'
+                        : 'Choose different resources. You need enough cards to give, and bank trades need stock in the bank.'}
+                    </p>
+                  )}
+                </>
               )}
             </>
           )}

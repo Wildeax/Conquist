@@ -1,5 +1,7 @@
 import type { Action } from '@/packages/rules/game';
 export type Cue =
+  | 'chat'
+  | 'interest'
   | 'collect'
   | 'dice'
   | 'build'
@@ -183,6 +185,13 @@ class GameAudio {
     if (t - this.lastCue < 0.035) return;
     this.lastCue = t;
     switch (cue) {
+      case 'chat':
+        this.tone(880, t, 0.1, 0.035);
+        break;
+      case 'interest':
+        this.tone(660, t, 0.15, 0.065);
+        this.tone(880, t + 0.1, 0.2, 0.05);
+        break;
       case 'collect':
         [784, 988, 1175].forEach((f, i) =>
           this.tone(f, t + i * 0.075, 0.22, 0.055),

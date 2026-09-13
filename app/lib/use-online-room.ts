@@ -12,7 +12,7 @@ async function request<T = RoomView>(
   const response = await fetch(`/api/rooms${path}`, {
     method: body ? 'POST' : 'GET',
     headers: {
-      'X-Conquist-Protocol': '2',
+      'X-Conquist-Protocol': '3',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(body ? { 'Content-Type': 'application/json' } : {}),
     },
@@ -44,8 +44,20 @@ export function useOnlineRoom() {
         next.game = viewRef.current.game;
         next.actions = viewRef.current.actions;
       }
+      if ((next.chatRevision ?? 0) < (viewRef.current?.chatRevision ?? 0)) {
+        next.chat = viewRef.current!.chat;
+        next.chatRevision = viewRef.current!.chatRevision;
+      }
       viewRef.current = next;
       setView(next);
+    }
+    if (viewRef.current && next.chatRevision > viewRef.current.chatRevision) {
+      viewRef.current = {
+        ...viewRef.current,
+        chat: next.chat,
+        chatRevision: next.chatRevision,
+      };
+      setView(viewRef.current);
     }
     setConnected(true);
   }, []);
@@ -146,6 +158,18 @@ export function useOnlineRoom() {
     },
     [accept],
   );
+  const sendChat = useCallback(
+    async (text: string, clientId: string) => {
+      const active = current.current;
+      if (!active) throw new Error('Join a room first.');
+      const next = await request(`/${active.code}/chat`, active.token, {
+        text,
+        clientId,
+      });
+      accept(next, active);
+    },
+    [accept],
+  );
   function leave() {
     current.current = null;
     viewRef.current = null;
@@ -157,5 +181,15 @@ export function useOnlineRoom() {
       sessionStorage.removeItem(key);
     } catch {}
   }
-  return { session, view, busy, connected, error, enter, send, leave };
+  return {
+    session,
+    view,
+    busy,
+    connected,
+    error,
+    enter,
+    send,
+    sendChat,
+    leave,
+  };
 }
