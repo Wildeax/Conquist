@@ -11,7 +11,8 @@
     "build:vps": "node tools/build-vps.mjs",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",
-    "test": "node --experimental-strip-types --test packages/rules/*.test.ts lib/scene/*.test.ts",
+    "test": "node --experimental-strip-types --test packages/rules/*.test.ts lib/scene/*.test.ts server/*.test.ts",
+    "rooms": "node --experimental-strip-types server/index.ts",
     "assets:models": "node --experimental-strip-types tools/export-models.mjs",
     "typecheck": "tsc --noEmit",
     "format": "oxfmt"

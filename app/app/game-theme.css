@@ -754,3 +754,65 @@
     transition: none;
   }
 }
+.room-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: #081717df;
+  backdrop-filter: blur(10px);
+  overflow-y: auto;
+}
+.room-panel {
+  width: min(100%, 480px);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  background: #142a2b;
+  border: 1px solid #aa8854;
+  border-radius: 18px;
+  padding: 28px;
+  display: grid;
+  gap: 16px;
+  color: #f3e8d2;
+  box-shadow: 0 20px 80px #0008;
+}
+.room-panel h2 {
+  font-size: 28px;
+  margin: 0;
+}
+.room-panel p {
+  line-height: 1.5;
+  margin: 0;
+}
+.room-panel input {
+  width: 100%;
+  min-width: 0;
+}
+.room-seats {
+  padding-left: 24px;
+  display: grid;
+  gap: 14px;
+}
+.room-seats small {
+  display: block;
+  color: #b7c9c4;
+}
+.online-offer {
+  position: fixed;
+  z-index: 70;
+  top: 78px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(90vw, 540px);
+  background: #183435;
+  color: #fff1d9;
+  border: 1px solid #bb9458;
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: 0 12px 40px #0008;
+}
+.online-offer button {
+  margin: 8px 8px 0 0;
+}

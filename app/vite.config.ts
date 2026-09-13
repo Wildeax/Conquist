@@ -35,12 +35,13 @@ const localBindingConfig = {
 };
 
 export default defineConfig(async () => {
-  // The local alpha has no server APIs. Export it for nginx on the shared VPS,
+  // Export the client for nginx; the VPS room service owns /api/rooms,
   // while preserving the existing Sites and local development targets.
   if (process.env.CONQUIST_TARGET === 'vps') {
     return {
       css: { postcss: { plugins: [tailwindcss()] } },
       plugins: [vinext()],
+      server: { proxy: { '/api': 'http://127.0.0.1:3102' } },
     };
   }
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
@@ -54,9 +55,12 @@ export default defineConfig(async () => {
 
   return {
     css: { postcss: { plugins: [tailwindcss()] } },
-    server: isCodexSeatbeltSandbox
-      ? { watch: { useFsEvents: false, usePolling: true } }
-      : undefined,
+    server: {
+      proxy: { '/api': 'http://127.0.0.1:3102' },
+      ...(isCodexSeatbeltSandbox
+        ? { watch: { useFsEvents: false, usePolling: true } }
+        : {}),
+    },
     plugins: [
       vinext(),
       sites(),

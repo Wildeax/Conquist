@@ -10,7 +10,7 @@ export type Cue =
   | 'turn'
   | 'win'
   | 'click';
-export function actionCue(action: Action): Cue {
+export function actionCue(action: Pick<Action, 'type'>): Cue {
   switch (action.type) {
     case 'roll':
       return 'dice';
