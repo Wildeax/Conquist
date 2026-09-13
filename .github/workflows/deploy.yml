@@ -1,0 +1,115 @@
+name: Deploy Conquist
+on:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      rollback_sha:
+        description: 'Optional full SHA of an existing release to restore'
+        type: string
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  build:
+    if: (github.ref_name == 'main' || github.ref_name == 'develop') && inputs.rollback_sha == ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Validate source and export the client
+        working-directory: app
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm test
+          npm run build:vps
+      - name: Validate deployment scripts
+        run: |
+          bash -n deploy/actions/receive.sh deploy/actions/smoke-release.sh
+          shellcheck deploy/actions/receive.sh deploy/actions/smoke-release.sh
+          python3 -m unittest discover -s deploy/actions -p '*_test.py'
+      - name: Package immutable release images
+        env:
+          RELEASE: ${{ github.sha }}
+        run: |
+          mkdir -p package/client
+          cp -a app/dist/client/. package/client/
+          printf '{"release":"%s"}\n' "$RELEASE" > package/client/release.json
+          cp deploy/container-nginx.conf package/container-nginx.conf
+          docker build -f deploy/actions/runtime.Dockerfile -t "conquist-web:$RELEASE" package
+          docker build -f deploy/rooms.Dockerfile -t "conquist-rooms:$RELEASE" .
+          docker save "conquist-web:$RELEASE" "conquist-rooms:$RELEASE" | gzip -1 > images.tar.gz
+          sha256sum images.tar.gz > images.tar.gz.sha256
+      - name: Test containers and automatic rollback on the isolated runner
+        env:
+          RELEASE: ${{ github.sha }}
+        run: bash deploy/actions/smoke-release.sh "$RELEASE"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ github.sha }}
+          path: |
+            images.tar.gz
+            images.tar.gz.sha256
+          retention-days: 14
+          compression-level: 0
+  deploy:
+    needs: build
+    if: always() && (github.ref_name == 'main' || github.ref_name == 'develop') && (needs.build.result == 'success' || (needs.build.result == 'skipped' && inputs.rollback_sha != ''))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+      url: ${{ github.ref_name == 'main' && 'https://conquist.online' || 'https://staging.conquist.online' }}
+    env:
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+      ENVIRONMENT: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+      SITE_URL: ${{ github.ref_name == 'main' && 'https://conquist.online' || 'https://staging.conquist.online' }}
+      RELEASE: ${{ inputs.rollback_sha || github.sha }}
+      MODE: ${{ inputs.rollback_sha != '' && 'rollback' || 'deploy' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: inputs.rollback_sha == ''
+        with:
+          name: release-${{ github.sha }}
+      - name: Configure restricted SSH access
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          test -n "$SSH_KEY" && test -n "$KNOWN_HOSTS"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/conquist
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/conquist ~/.ssh/known_hosts
+      - name: Deploy or restore the selected release
+        run: |
+          [[ "$RELEASE" =~ ^[a-f0-9]{40}$ ]] || { echo 'Expected a full commit SHA'; exit 2; }
+          if [[ "$MODE" == deploy ]]; then sha256sum -c images.tar.gz.sha256; fi
+          { printf '%s %s\n' "$MODE" "$RELEASE"; if [[ "$MODE" == deploy ]]; then cat images.tar.gz; fi; } |
+            ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 -i ~/.ssh/conquist "$DEPLOY_USER@$DEPLOY_HOST"
+      - name: Verify the public release through Cloudflare
+        id: public_check
+        run: python3 deploy/actions/verify-release.py "$SITE_URL" "$RELEASE" "$ENVIRONMENT"
+      - name: Restore previous release when public verification fails
+        if: failure() && steps.public_check.outcome == 'failure'
+        run: |
+          printf 'restore previous\n' |
+            ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -i ~/.ssh/conquist "$DEPLOY_USER@$DEPLOY_HOST"
+      - name: Record deployment
+        run: |
+          printf 'Deployed `%s` to [%s](%s).\n' "$RELEASE" "$ENVIRONMENT" "$SITE_URL" >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove temporary SSH key
+        if: always()
+        run: rm -f ~/.ssh/conquist

@@ -1,0 +1,44 @@
+name: Configure staging domain
+on:
+  push:
+    branches: [develop]
+    paths:
+      - '.github/workflows/staging-domain.yml'
+      - 'deploy/actions/configure-cloudflare.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: staging-domain
+  cancel-in-progress: false
+jobs:
+  configure:
+    if: github.ref_name == 'develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: staging
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Configure DNS and sign the origin certificate
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          STAGING_ORIGIN_CSR: ${{ vars.STAGING_ORIGIN_CSR }}
+        run: python3 deploy/actions/configure-cloudflare.py
+      - name: Install certificate and enable staging HTTPS
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/conquist
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/conquist ~/.ssh/known_hosts
+          { printf 'certificate staging\n'; cat staging-origin.crt; } |
+            ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -i ~/.ssh/conquist "$DEPLOY_USER@$DEPLOY_HOST"
+      - name: Remove temporary key
+        if: always()
+        run: rm -f ~/.ssh/conquist

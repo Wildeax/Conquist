@@ -1,41 +1,44 @@
-# Shared VPS deployment
+# Deployment
 
-Target: `arena-staging`, `144.217.90.9`. Read `/opt/README-SHARED-BOX.md` before making server changes.
+GitHub Actions builds, tests and deploys Conquist. The shared VPS runs only the finished images. Cloudflare supplies DNS and HTTPS proxying.
 
-Conquist is isolated under `/opt/conquist/releases/`. Each release contains its source and Docker Compose configuration. Never deploy inside `/opt/arena-crawler` or modify its services.
+| Branch | GitHub environment | URL | Compose project | Local port |
+| --- | --- | --- | --- | --- |
+| `develop` | staging | https://staging.conquist.online | `conquist-staging` | 3103 |
+| `main` | production | https://conquist.online | `conquist` | 3101 |
 
-`npm run build:vps` exports static HTML and assets to `app/dist/client`. The web container serves these through nginx on port 8080 and forwards `/api/` to the private Node room service. Compose publishes **only `127.0.0.1:3101`**. The web container has a 128 MB memory limit; rooms have 256 MB. Both have log rotation and automatic restart. The room image uses only Node built-ins and shared rules, without the frontend npm dependencies.
+Both branches require pull requests, passing `validate` checks and resolved conversations. Force pushes and branch deletion are blocked, including for admins. Production secrets are available only to `main`; staging secrets only to `develop`. Staging is a public test game with a no-index header and separate room data, not a place for production data or secrets.
 
-The `conquist_rooms-data` named volume stores room snapshots and hashed seat credentials across container restarts and releases. Back up this volume with access restricted to operators. Do not run `docker compose down -v` during an update or rollback. Run only one room-service replica against this volume. Rooms expire after seven days without a mutation. TLS on the existing host proxy protects room credentials in transit.
+## Normal releases
 
-`deploy/host-nginx.conf` routes the exact hostname `conquist.online` through the shared nginx. It must never contain `default_server`. Test with `sudo nginx -t` before reloading nginx. Leave Arena and Questionary unchanged.
+1. Open a feature PR into `develop` and merge after checks pass. **Deploy Conquist** builds and deploys staging automatically.
+2. Test the staging game, then open a PR from `develop` into `main`.
+3. Merge after checks pass. The same workflow builds and deploys production.
 
-## Deploy a release
+Use **Actions → Deploy Conquist → Run workflow** on `develop` or `main` to redeploy that branch. Deployments are serialized per environment and are not cancelled halfway through a release. PR code runs on GitHub-hosted runners without deployment credentials.
 
-Upload a source archive without `.git`, dependencies, build outputs, environment files or secrets to a new `/opt/conquist/releases/<release>` directory, then extract it there. From that directory:
+The workflow typechecks, lints and tests the app, exports the client, validates deployment scripts, and builds two images tagged with the full commit SHA. The compressed images and checksum remain in Actions artifacts for 14 days. A dedicated SSH key streams them to the VPS with strict host-key checking. The receiver validates that the archive contains only the two expected Conquist tags before loading it.
 
-```sh
-CONQUIST_RELEASE=<release> docker compose -f deploy/compose.yml build
-CONQUIST_RELEASE=<release> docker compose -f deploy/compose.yml up -d --no-build
-curl --fail http://127.0.0.1:3101/healthz
-curl --fail http://127.0.0.1:3101/api/health
-curl --fail https://conquist.online/
-```
+The VPS checks container health, the frontend's `/release.json`, and `/api/health`, including their release and environment values. Actions then checks the same values through public HTTPS. Failed container checks restore the previous Compose configuration; a failed public check requests the previous release too. A failed deployment remains failed in GitHub even if recovery succeeds.
 
-On the first deployment, install the host vhost in `/etc/nginx/sites-available/conquist`, link it into `sites-enabled`, validate and reload nginx. Install Conquist's origin certificate first. Do not change the shared default certificate or lower Cloudflare's TLS security mode.
+## Rollback and data
 
-Public URL: **https://conquist.online/**. The apex has a Cloudflare-proxied A record pointing to `144.217.90.9`. Conquist's zone uses Full (strict) TLS, with HTTP redirected to HTTPS by nginx. No other zone was changed.
+Run **Deploy Conquist** on the affected branch and supply the previous full commit SHA as `rollback_sha`. The receiver uses the existing immutable images. It rejects missing images before changing containers. Successful releases are recorded in `/opt/conquist/<environment>/history.log`; `current-sha`, `current.yml` and `previous.yml` identify the current and previous release.
 
-Initial release installed: `20260909-alpha1`. Container `conquist-web-1` passed its health check; the public HTTPS page and generated assets returned HTTP 200 through Cloudflare. Arena health and the Questionary service remained unchanged.
+Staging and production have separate `conquist-staging_rooms-data` and `conquist_rooms-data` volumes. The receiver backs up the applicable volume under `/opt/conquist/<environment>/backups/` before deployment. Backups and images remain on the server for operator-managed retention; monitor disk use. Room writes use atomic snapshots. A code rollback preserves current room data rather than overwriting moves made since a backup. Review data compatibility before deploying a change to the room format. Never use `docker compose down -v` for a release or rollback.
 
-Origin TLS files are `/etc/nginx/ssl/conquist/origin.crt` and `origin.key`. The private key was generated on the VPS, is root-only, and is not in this repository. Certificate expiry: **2028-09-08 21:25 UTC**; renew before that date. Origin CA certificates require Cloudflare proxying and are not directly trusted by browsers. The previous HTTP vhost is backed up at `/etc/nginx/sites-available/conquist.http-backup`.
+There is one room-service process per environment. Keep both within the current small private-room scope; horizontal scaling requires a different state store. Brief reconnects during deployments are expected and browser sessions retain their seats.
 
-Cloudflare Global API Keys use `X-Auth-Key` with `X-Auth-Email`, not Bearer token authentication. Never store credentials in release archives or this repository. Rotate the key shared in chat; the running site does not depend on it.
+## Access and infrastructure
 
-The build-time npm dependency audit reports existing advisories in the framework/toolchain. The web image contains only nginx and exported browser assets. The separate room image runs the minimal HTTP service, not Vinext, RSC endpoints or a development server. Keep the Node and nginx base images patched.
+The existing server is `arena-staging`, `144.217.90.9`. Read `/opt/README-SHARED-BOX.md` before infrastructure changes. Conquist uses `/opt/conquist/`, loopback ports 3101 and 3103, explicit nginx hostnames, and its own Compose projects. Do not touch `/opt/arena-crawler`, Arena's default vhost, or Questionary. Do not publish Docker ports on `0.0.0.0`.
 
-## Rollback
+Each environment's `DEPLOY_SSH_KEY` is an independent key with an SSH forced command, `restrict`, no forwarding and no interactive shell. The root-owned receiver fixes its environment, Compose configuration and filesystem paths. It accepts release images, existing-release rollback, previous-release recovery, and, for staging only, its origin certificate. It cannot run arbitrary commands supplied by the workflow. The existing operator SSH key is not stored in GitHub.
 
-Keep prior release directories and both image tags, `conquist:<release>` and `conquist-rooms:<release>`. From the previous release directory, run `CONQUIST_RELEASE=<previous-release> docker compose -f deploy/compose.yml up -d --no-build`. The fixed Compose project name `conquist` replaces only Conquist's services. Recheck web and API health afterward. A rollback to a pre-multiplayer release disables online play; retain the room data volume for recovery.
+Repository variables are `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_KNOWN_HOSTS` and `CLOUDFLARE_ZONE_ID`. Staging also has a public `STAGING_ORIGIN_CSR` variable and a `CLOUDFLARE_API_TOKEN` secret limited to DNS Write and SSL and Certificates Write for `conquist.online`. The Cloudflare global key is not stored in GitHub. Normal application releases do not use a Cloudflare credential.
 
-Local gameplay saves remain in each browser's local storage and are specific to its origin. Online room credentials remain in the originating tab's session storage; the server stores the match. Existing browser-local saves do not become online matches.
+**Configure staging domain** runs when its workflow or provisioner changes on `develop`, and can be run manually on `develop` for renewal. It creates or verifies the proxied staging A record, refuses to replace a conflicting record, and signs the server-generated CSR. The receiver checks the hostname, expiry and public-key match, installs the certificate, tests nginx and reloads it. The private key never leaves `/etc/nginx/ssl/conquist-staging/`. The certificate lasts two years; renew it before expiry. Production keeps its existing origin certificate under `/etc/nginx/ssl/conquist/`, expiring September 8, 2028. Keep Cloudflare Full (strict) TLS enabled.
+
+The one-time server installation puts `actions/receive.sh` at `/usr/local/sbin/conquist-deploy`, the Compose template and Python validators in `/usr/local/share/conquist/`, and `staging-host-nginx.conf` in nginx's sites-available directory. These files must be root-owned and not writable by the deployment key. Changes to the receiver or host routing require an operator to review and install them; app releases go through Actions. Preserve existing authorized keys when installing new forced-command keys.
+
+The standalone Sites build does not host the Node room service. The supported online deployment is the VPS pipeline above. `compose.yml` and `Dockerfile` remain available for local container development, not the normal release process.
