@@ -15,6 +15,7 @@ import {
   useLocalCosmetics,
 } from '@/components/cosmetics-picker';
 import { DEFAULT_LOADOUT } from '@/lib/cosmetics';
+import { PlayerActionBubble } from '@/components/player-action-bubble';
 import { TablePanel } from '@/components/table-panel';
 import { PublicTradeComposer } from '@/components/resource-bundle';
 import { OnlineLobby } from '@/components/online-lobby';
@@ -22,8 +23,6 @@ import {
   Compass,
   ArrowRight,
   BookOpen,
-  Volume2,
-  VolumeX,
   Settings2,
   Flag,
   Trophy,
@@ -413,58 +412,13 @@ export default function Home() {
           {online.error}
         </output>
       )}
-      <header className="topbar">
-        <button
-          className="brand"
-          onClick={(e) => {
-            e.preventDefault();
-            if (network) {
-              setRoomMenu(true);
-              return;
-            }
-            setPlaying(false);
-            setSaved(game);
-          }}
-        >
-          <Compass className="brand-mark" />
-          <span>
-            CONQUIST<small>THE EMBER ISLES</small>
-          </span>
-        </button>
-        <div className="table-meta">
-          <span className="status-dot" />
-          {!playing
-            ? 'A NEW WORLD AWAITS'
-            : network
-              ? `ONLINE ROOM · ${online.view?.code}`
-              : local
-                ? 'LOCAL TABLE · 4 PLAYERS'
-                : 'SOLO TABLE · 3 OPPONENTS'}
-        </div>
-        <nav aria-label="Game tools">
-          <button
-            className="icon-button"
-            aria-label="How to play"
-            onClick={() => setModal('rules')}
-          >
-            <BookOpen size={19} />
-          </button>
-          <button
-            className="icon-button"
-            aria-label={audio ? 'Mute sound' : 'Enable sound'}
-            onClick={() => setAudio(!audio)}
-          >
-            {audio ? <Volume2 size={19} /> : <VolumeX size={19} />}
-          </button>
-          <button
-            className="icon-button"
-            aria-label="Settings"
-            onClick={() => setModal('settings')}
-          >
-            <Settings2 size={19} />
-          </button>
-        </nav>
-      </header>
+      <button
+        className="icon-button floating-settings"
+        aria-label="Settings"
+        onClick={() => setModal('settings')}
+      >
+        <Settings2 size={22} />
+      </button>
       {!playing ? (
         <section className="welcome">
           <Image
@@ -555,6 +509,7 @@ export default function Home() {
                     key={i}
                     style={{ '--player': COLORS[i] } as React.CSSProperties}
                   >
+                    <PlayerActionBubble entries={game.log} name={p.name} />
                     <span
                       className="player-gain"
                       data-player-gain
@@ -565,7 +520,7 @@ export default function Home() {
                         className={`avatar portrait portrait-${i}`}
                         aria-hidden="true"
                       >
-                        <span>{['◆', '◈', '▲', '✦'][i]}</span>
+                        <span className="player-color-dot" />
                       </div>
                       <div className="player-name">
                         <strong>{p.name}</strong>
@@ -1127,6 +1082,9 @@ export default function Home() {
           {modal === 'settings' && (
             <>
               <DialogTitle>Your table</DialogTitle>
+              <button className="secondary" onClick={() => setModal('rules')}>
+                <BookOpen size={16} /> How to play
+              </button>
               <DialogDescription>
                 Set up your next expedition.
               </DialogDescription>
