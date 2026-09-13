@@ -1,17 +1,25 @@
 name: Conquist checks
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
           cache: npm
@@ -22,3 +30,9 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run build:vps
+      - name: Validate deployment scripts
+        working-directory: .
+        run: |
+          bash -n deploy/actions/receive.sh deploy/actions/smoke-release.sh
+          shellcheck deploy/actions/receive.sh deploy/actions/smoke-release.sh
+          python3 -m unittest discover -s deploy/actions -p '*_test.py'
