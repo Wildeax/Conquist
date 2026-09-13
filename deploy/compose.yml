@@ -1,0 +1,46 @@
+name: conquist
+services:
+  web:
+    image: conquist:${CONQUIST_RELEASE:-local}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      rooms:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3101:8080"
+    mem_limit: 128m
+    cpus: 1.0
+    pids_limit: 100
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  rooms:
+    image: conquist-rooms:${CONQUIST_RELEASE:-local}
+    build:
+      context: ..
+      dockerfile: deploy/rooms.Dockerfile
+    restart: unless-stopped
+    volumes:
+      - rooms-data:/data
+    environment:
+      CONQUIST_DATA_DIR: /data
+      PORT: 3102
+    mem_limit: 256m
+    cpus: 1.0
+    pids_limit: 100
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  rooms-data:

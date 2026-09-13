@@ -1,0 +1,9 @@
+.git
+**/node_modules
+**/dist
+**/out
+**/.wrangler
+**/.vite
+**/.env*
+**/*.log
+conquist-prd.md

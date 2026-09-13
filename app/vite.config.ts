@@ -35,6 +35,15 @@ const localBindingConfig = {
 };
 
 export default defineConfig(async () => {
+  // Export the client for nginx; the VPS room service owns /api/rooms,
+  // while preserving the existing Sites and local development targets.
+  if (process.env.CONQUIST_TARGET === 'vps') {
+    return {
+      css: { postcss: { plugins: [tailwindcss()] } },
+      plugins: [vinext()],
+      server: { proxy: { '/api': 'http://127.0.0.1:3102' } },
+    };
+  }
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
   // settings; application environment belongs in ignored `.env*` files.
   process.env.WRANGLER_WRITE_LOGS ??= 'false';
@@ -46,9 +55,12 @@ export default defineConfig(async () => {
 
   return {
     css: { postcss: { plugins: [tailwindcss()] } },
-    server: isCodexSeatbeltSandbox
-      ? { watch: { useFsEvents: false, usePolling: true } }
-      : undefined,
+    server: {
+      proxy: { '/api': 'http://127.0.0.1:3102' },
+      ...(isCodexSeatbeltSandbox
+        ? { watch: { useFsEvents: false, usePolling: true } }
+        : {}),
+    },
     plugins: [
       vinext(),
       sites(),

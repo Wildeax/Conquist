@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import './game-theme.css';
 
 export const metadata: Metadata = {
   title: 'Conquist · The Ember Isles',

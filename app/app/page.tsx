@@ -1,8 +1,12 @@
 'use client';
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
 import { useGameTools } from '@/lib/use-game-tools';
+import { gameAudio, actionCue } from '@/lib/audio';
+import { useOnlineRoom } from '@/lib/use-online-room';
+import { botPresentation } from '@/packages/rules/bot-presentation';
+import { OnlineLobby } from '@/components/online-lobby';
 import {
   Compass,
   ArrowRight,
@@ -61,26 +65,13 @@ const Board = dynamic(() => import('@/components/board'), {
 });
 const icons = [TreePine, BrickWall, Cloud, Wheat, Mountain],
   storageKey = 'conquist-local-v1';
-function sound(enabled: boolean) {
-  if (!enabled) return;
-  try {
-    const ctx = new AudioContext(),
-      osc = ctx.createOscillator(),
-      gain = ctx.createGain();
-    osc.frequency.setValueAtTime(520, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(260, ctx.currentTime + 0.14);
-    gain.gain.setValueAtTime(0.035, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.2);
-    osc.onended = () => void ctx.close();
-  } catch {}
-}
 export default function Home() {
-  const [game, setGame] = useState<Game>(() => createGame(42817)),
-    [playing, setPlaying] = useState(false),
+  const online = useOnlineRoom();
+  const sendOnline = online.send;
+  const onlineSeed = online.view?.game?.seed;
+  const [roomMenu, setRoomMenu] = useState(false);
+  const [localGame, setGame] = useState<Game>(() => createGame(42817)),
+    [localPlaying, setPlaying] = useState(false),
     [saved, setSaved] = useState<Game | null>(null),
     [build, setBuild] = useState<'road' | 'settlement' | 'city' | null>(null),
     [modal, setModal] = useState<
@@ -88,7 +79,8 @@ export default function Home() {
     >(null),
     [view, setView] = useState(0),
     [lite, setLite] = useState(false),
-    [audio, setAudio] = useState(false),
+    [audio, setAudio] = useState(true),
+    [volume, setVolume] = useState(0.55),
     [notice, setNotice] = useState(''),
     [give, setGive] = useState(0),
     [want, setWant] = useState(3),
@@ -98,6 +90,73 @@ export default function Home() {
     [cardSecond, setCardSecond] = useState(3),
     [seed, setSeed] = useState('42817'),
     [handoff, setHandoff] = useState(false);
+  const game = online.view?.game ?? localGame;
+  const playing = online.session ? !!online.view?.game : localPlaying;
+  const network = !!online.session;
+  const heard = useRef<{ code: string; revision: number } | null>(null);
+  useEffect(() => {
+    const next = online.view;
+    if (!next) {
+      heard.current = null;
+      return;
+    }
+    if (
+      heard.current?.code === next.code &&
+      heard.current.revision < next.revision &&
+      next.lastMove &&
+      audio
+    ) {
+      gameAudio.play(
+        next.game?.phase === 'over'
+          ? 'win'
+          : actionCue({ type: next.lastMove }),
+      );
+    }
+    heard.current = { code: next.code, revision: next.revision };
+  }, [online.view, audio]);
+  useEffect(() => {
+    // Read the browser invite only after hydration.
+    if (new URLSearchParams(window.location.search).has('room'))
+      // eslint-disable-next-line react/react-compiler
+      setRoomMenu(true);
+  }, []);
+  useEffect(() => {
+    if (onlineSeed !== undefined) {
+      // A newly started remote match resets local overlays once.
+      // eslint-disable-next-line react/react-compiler
+      setRoomMenu(false);
+      setModal(null);
+      setHandoff(false);
+      setBuild(null);
+    }
+  }, [onlineSeed]);
+  useEffect(() => {
+    gameAudio.setEnabled(audio);
+    gameAudio.setVolume(volume);
+    gameAudio.setActive(playing);
+  }, [audio, volume, playing]);
+  useEffect(() => {
+    const unlock = () => {
+      void gameAudio.unlock(audio);
+    };
+    document.addEventListener('pointerdown', unlock);
+    document.addEventListener('keydown', unlock);
+    return () => {
+      document.removeEventListener('pointerdown', unlock);
+      document.removeEventListener('keydown', unlock);
+    };
+  }, [audio]);
+  useEffect(() => {
+    const visibility = () => {
+      if (document.hidden) gameAudio.pause();
+      else gameAudio.resume();
+    };
+    document.addEventListener('visibilitychange', visibility);
+    return () => {
+      document.removeEventListener('visibilitychange', visibility);
+      gameAudio.setActive(false);
+    };
+  }, []);
   useEffect(() => {
     try {
       const s = localStorage.getItem(storageKey);
@@ -115,21 +174,36 @@ export default function Home() {
     } catch {}
   }, []);
   useEffect(() => {
-    if (playing)
+    if (playing && !network)
       try {
         localStorage.setItem(storageKey, JSON.stringify(game));
       } catch {}
-  }, [game, playing]);
-  const all = useMemo(() => legalActions(game), [game]),
+  }, [game, playing, network]);
+  const all = useMemo(
+      () => (network ? (online.view?.actions ?? []) : legalActions(game)),
+      [game, network, online.view?.actions],
+    ),
     discarder =
       game.phase === 'discard' ? game.discard.findIndex((n) => n > 0) : -1,
     actor = discarder >= 0 ? discarder : game.active,
-    bot = game.players[actor].bot,
-    local = game.players.every((p) => !p.bot),
-    viewer = local ? actor : 0,
+    bot = network
+      ? actor !== online.view?.seat ||
+        online.busy ||
+        !online.connected ||
+        !!online.view?.offer
+      : game.players[actor].bot,
+    local = !network && game.players.every((p) => !p.bot),
+    viewer = network ? (online.view?.seat ?? 0) : local ? actor : 0,
     player = game.players[viewer];
   const act = useCallback(
     (a: Action) => {
+      if (network) {
+        if (!bot) {
+          void sendOnline({ type: 'action', action: a });
+          setBuild(null);
+        }
+        return;
+      }
       try {
         const next = apply(game, a);
         setGame(next);
@@ -141,21 +215,37 @@ export default function Home() {
           setHandoff(true);
         setBuild(null);
         setNotice('');
-        sound(audio);
+        if (audio) gameAudio.play(next.phase === 'over' ? 'win' : actionCue(a));
       } catch (e) {
         setNotice(e instanceof Error ? e.message : 'Unable to make that move.');
       }
     },
-    [audio, game, local, actor],
+    [audio, game, local, actor, network, bot, sendOnline],
   );
+  const botMove = useMemo(
+    () =>
+      !network && bot && playing && game.phase !== 'over'
+        ? chooseBotAction(game)
+        : null,
+    [network, bot, playing, game],
+  );
+  const botThought = botMove ? botPresentation(game, botMove, 0).message : '';
   useEffect(() => {
-    if (!playing || !bot || game.phase === 'over' || handoff) return;
+    if (
+      !playing ||
+      !botMove ||
+      game.phase === 'over' ||
+      handoff ||
+      modal ||
+      roomMenu
+    )
+      return;
     const t = setTimeout(
-      () => act(chooseBotAction(game)),
-      game.phase === 'discard' ? 180 : 650,
+      () => act(botMove),
+      botPresentation(game, botMove).delay,
     );
     return () => clearTimeout(t);
-  }, [game, playing, bot, handoff, act]);
+  }, [game, playing, botMove, handoff, modal, roomMenu, act]);
   const selectable = useMemo(() => {
     if (bot || handoff || !playing) return [];
     if (game.phase.startsWith('setup') || game.phase === 'raider') return all;
@@ -165,7 +255,7 @@ export default function Home() {
         ? all.filter((a) => a.type === build)
         : [];
   }, [all, build, bot, handoff, playing, game.phase, game.freeRoads]);
-  useGameTools(game, playing, bot || handoff, act);
+  useGameTools(game, playing && !network, bot || handoff, act);
   const onBoardAction = (a: Action) => {
     if (
       a.type === 'raider' &&
@@ -179,6 +269,7 @@ export default function Home() {
     act(a);
   };
   function start(hotseat = false) {
+    online.leave();
     const n = Number(seed);
     setGame(createGame(Number.isFinite(n) ? n >>> 0 : 42817, hotseat));
     setPlaying(true);
@@ -193,23 +284,31 @@ export default function Home() {
   const message =
     game.phase === 'over'
       ? `${game.players[game.winner!].name} wins the island!`
-      : handoff
-        ? 'Pass the device to the next player.'
-        : bot
-          ? `${game.players[actor].name} is considering a move...`
-          : game.phase === 'setup-settlement'
-            ? `Place your ${game.setup < 4 ? 'first' : 'second'} settlement`
-            : game.phase === 'setup-road'
-              ? 'Build a road from your new settlement'
-              : game.phase === 'roll'
-                ? 'Your turn. Roll the dice.'
-                : game.phase === 'discard'
-                  ? `Discard ${game.discard[actor]} resource cards`
-                  : game.phase === 'raider'
-                    ? 'Move the Raider to another tile'
-                    : build
-                      ? `Choose a glowing location for your ${build}`
-                      : 'Trade, build, or draw your next Fortune.';
+      : network && !online.connected
+        ? 'Connection lost. Reconnecting to your table...'
+        : network && online.busy
+          ? 'Sending your move...'
+          : network && online.view?.offer
+            ? 'Waiting for a trade response.'
+            : network && actor !== viewer
+              ? `${game.players[actor].name} is taking their turn...`
+              : handoff
+                ? 'Pass the device to the next player.'
+                : bot
+                  ? `${game.players[actor].name} ${botThought}`
+                  : game.phase === 'setup-settlement'
+                    ? `Place your ${game.setup < 4 ? 'first' : 'second'} settlement`
+                    : game.phase === 'setup-road'
+                      ? 'Build a road from your new settlement'
+                      : game.phase === 'roll'
+                        ? 'Your turn. Roll the dice.'
+                        : game.phase === 'discard'
+                          ? `Discard ${game.discard[actor]} resource cards`
+                          : game.phase === 'raider'
+                            ? 'Move the Raider to another tile'
+                            : build
+                              ? `Choose a glowing location for your ${build}`
+                              : 'Trade, build, or draw your next Fortune.';
   const tradeAction: Action =
       partner === -1
         ? { type: 'trade', give, want }
@@ -219,6 +318,11 @@ export default function Home() {
     );
   function trade() {
     if (!validTrade) return;
+    if (network) {
+      act(tradeAction);
+      setModal(null);
+      return;
+    }
     if (partner !== -1) {
       if (local) {
         setConfirmTrade(tradeAction);
@@ -255,11 +359,76 @@ export default function Home() {
   }
   return (
     <main className={`conquist${playing ? ' is-playing' : ''}`}>
+      {(roomMenu || (network && !playing)) && (
+        <OnlineLobby
+          online={online}
+          onClose={() => setRoomMenu(false)}
+          onLeave={() => {
+            online.leave();
+            setPlaying(false);
+            setRoomMenu(false);
+          }}
+        />
+      )}
+      {network && playing && online.error && (
+        <output className="notice" role="alert">
+          {online.error}
+        </output>
+      )}
+      {network && playing && online.view?.offer && (
+        <section className="online-offer" aria-label="Trade offer">
+          <p>
+            {game.players[game.active].name} offers 1{' '}
+            {RESOURCES[online.view.offer.give]} for 1{' '}
+            {RESOURCES[online.view.offer.want]} from{' '}
+            {game.players[online.view.offer.partner].name}.
+          </p>
+          {online.view.offer.partner === viewer && (
+            <>
+              <button
+                className="primary"
+                disabled={
+                  online.busy ||
+                  !online.connected ||
+                  !player.resources[online.view.offer.want]
+                }
+                onClick={() =>
+                  void online.send({ type: 'respond', accept: true })
+                }
+              >
+                Accept trade
+              </button>
+              <button
+                className="secondary"
+                disabled={online.busy || !online.connected}
+                onClick={() =>
+                  void online.send({ type: 'respond', accept: false })
+                }
+              >
+                Decline
+              </button>
+            </>
+          )}
+          {game.active === viewer && (
+            <button
+              className="secondary"
+              disabled={online.busy || !online.connected}
+              onClick={() => void online.send({ type: 'cancel-offer' })}
+            >
+              Cancel offer
+            </button>
+          )}
+        </section>
+      )}
       <header className="topbar">
         <button
           className="brand"
           onClick={(e) => {
             e.preventDefault();
+            if (network) {
+              setRoomMenu(true);
+              return;
+            }
             setPlaying(false);
             setSaved(game);
           }}
@@ -273,9 +442,11 @@ export default function Home() {
           <span className="status-dot" />
           {!playing
             ? 'A NEW WORLD AWAITS'
-            : local
-              ? 'LOCAL TABLE · 4 PLAYERS'
-              : 'SOLO TABLE · 3 OPPONENTS'}
+            : network
+              ? `ONLINE ROOM · ${online.view?.code}`
+              : local
+                ? 'LOCAL TABLE · 4 PLAYERS'
+                : 'SOLO TABLE · 3 OPPONENTS'}
         </div>
         <nav aria-label="Game tools">
           <button
@@ -332,10 +503,13 @@ export default function Home() {
               <button className="primary play-button" onClick={() => start()}>
                 Play solo <ArrowRight size={21} />
               </button>
+              <button className="secondary" onClick={() => setRoomMenu(true)}>
+                Play online <span>Invite friends to a private room</span>
+              </button>
               <button className="secondary" onClick={() => start(true)}>
                 Pass & play <span>4 players, one device</span>
               </button>
-              {saved && saved.phase !== 'over' && (
+              {!network && saved && saved.phase !== 'over' && (
                 <button
                   className="text-button"
                   onClick={() => {
@@ -358,7 +532,7 @@ export default function Home() {
           <footer className="menu-footer">
             <span>OPEN SOURCE · BUILT FOR THE TABLE</span>
             <span>
-              Local alpha 0.1 <span className="status-dot" />
+              Private rooms alpha <span className="status-dot" />
             </span>
           </footer>
         </section>
@@ -375,29 +549,39 @@ export default function Home() {
               {game.players.map((p, i) => (
                 <div
                   className={`player-card ${game.active === i ? 'active' : ''}`}
-                  key={p.name}
+                  key={i}
                   style={{ '--player': COLORS[i] } as React.CSSProperties}
                 >
                   <div className="player-top">
-                    <div className="avatar">{['◆', '◈', '▲', '✦'][i]}</div>
+                    <div
+                      className={`avatar portrait portrait-${i}`}
+                      aria-hidden="true"
+                    >
+                      <span>{['◆', '◈', '▲', '✦'][i]}</span>
+                    </div>
                     <div className="player-name">
                       <strong>{p.name}</strong>
                       <small>
-                        {p.bot
-                          ? 'Island rival'
-                          : local
-                            ? 'Local player'
-                            : 'Your expedition'}
+                        {network
+                          ? `${i === viewer ? 'You' : 'Online player'} · ${online.view?.seats[i]?.online ? 'Connected' : 'Reconnecting'}`
+                          : p.bot
+                            ? 'Island rival'
+                            : local
+                              ? 'Local player'
+                              : 'Your expedition'}
                       </small>
                     </div>
                     <strong className="points">
-                      {score(game, i, i !== viewer && game.phase !== 'over')}
+                      {network
+                        ? online.view?.points[i]
+                        : score(game, i, i !== viewer && game.phase !== 'over')}
                       <small>VP</small>
                     </strong>
                   </div>
                   <div className="player-stats">
                     <span title="Resource cards">
-                      <span className="tiny-cards" /> {hand(game, i)}
+                      <span className="tiny-cards" />{' '}
+                      {network ? online.view?.hands[i] : hand(game, i)}
                     </span>
                     <span title="Roads">
                       <Route size={14} />{' '}
@@ -494,7 +678,10 @@ export default function Home() {
                 <Compass size={15} />
               </div>
               <div className="dice-box">
-                <div className="dice-pair">
+                <div
+                  className="dice-pair"
+                  key={`${game.turn}-${game.dice.join('-')}`}
+                >
                   {(game.dice.length ? game.dice : [0, 0]).map((d, i) => (
                     <div
                       className={`die d${d}`}
@@ -594,7 +781,12 @@ export default function Home() {
                     }
                     aria-label={`${r}: ${handoff ? 'hidden' : player.resources[i]}${game.phase === 'discard' ? ', discard one' : ''}`}
                   >
-                    <Icon size={26} />
+                    <span
+                      className={`resource-sprite sprite-${i}`}
+                      aria-hidden="true"
+                    >
+                      <Icon size={26} />
+                    </span>
                     <strong>{handoff ? '?' : player.resources[i]}</strong>
                     <span>{r}</span>
                   </button>
@@ -720,12 +912,15 @@ export default function Home() {
                 {game.players[game.winner ?? 0].name} wins!
               </DialogTitle>
               <DialogDescription>
-                {score(game, game.winner ?? 0)} victory points in {game.turn}{' '}
-                turns.
+                {network
+                  ? online.view?.points[game.winner ?? 0]
+                  : score(game, game.winner ?? 0)}{' '}
+                victory points in {game.turn} turns.
               </DialogDescription>
               <button
                 className="primary"
                 onClick={() => {
+                  online.leave();
                   setPlaying(false);
                   setGame(createGame(game.seed + 1));
                   setSeed(String(game.seed + 1));
@@ -840,13 +1035,28 @@ export default function Home() {
                 className="setting-toggle"
                 onClick={() => setAudio(!audio)}
               >
-                <span>Game sounds</span>
+                <span>Sound & ocean ambience</span>
                 <b>{audio ? 'On' : 'Off'}</b>
               </button>
+              <label className="field">
+                Volume · {Math.round(volume * 100)}%
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step=".05"
+                  value={volume}
+                  onChange={(event) => setVolume(Number(event.target.value))}
+                />
+              </label>
               <button
                 className="primary"
                 onClick={() => {
                   setModal(null);
+                  if (network) {
+                    setRoomMenu(true);
+                    return;
+                  }
                   setPlaying(false);
                   setSaved(game);
                 }}
@@ -1012,7 +1222,9 @@ export default function Home() {
                 Draw Fortune <Sparkles size={18} />
               </button>
               <p className="muted">
-                1 Wool + 1 Grain + 1 Stone · {game.deck.length} cards remain
+                1 Wool + 1 Grain + 1 Stone ·{' '}
+                {network ? online.view?.deckCount : game.deck.length} cards
+                remain
               </p>
             </>
           )}

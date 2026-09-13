@@ -9,4 +9,6 @@ node_modules/
 dist/
 build/
 coverage/
+out/
 *.log
+.rooms/

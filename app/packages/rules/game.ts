@@ -475,7 +475,13 @@ export function apply(state: Game, action: Action): Game {
       );
       g.phase = g.discard.some(Boolean) ? 'discard' : 'raider';
       g.resume = 'main';
-    } else
+    } else {
+      const received = g.players.map(() => [] as string[]);
+      if (g.hexes[g.raider].number === roll)
+        note(
+          g,
+          `The Raider blocked the ${roll} ${g.hexes[g.raider].resource} tile.`,
+        );
       for (let r = 0; r < 5; r++) {
         const due = g.players.map((_, owner) =>
           g.hexes
@@ -501,9 +507,30 @@ export function apply(state: Game, action: Action): Game {
               0,
             ),
         );
-        if (sum(due) <= g.bank[r] || due.filter(Boolean).length === 1)
-          due.forEach((n, owner) => take(g, owner, r, n));
+        if (sum(due) <= g.bank[r] || due.filter(Boolean).length === 1) {
+          due.forEach((n, owner) => {
+            const amount = Math.min(n, g.bank[r]);
+            take(g, owner, r, n);
+            if (amount) received[owner].push(`${amount} ${RESOURCES[r]}`);
+            if (amount < n)
+              note(
+                g,
+                `Bank shortage: ${g.players[owner].name} received only ${amount} of ${n} ${RESOURCES[r]}.`,
+              );
+          });
+        } else if (sum(due))
+          note(
+            g,
+            `Bank shortage: no ${RESOURCES[r]} distributed for this roll.`,
+          );
       }
+      received.forEach((items, owner) => {
+        if (items.length)
+          note(g, `${g.players[owner].name} received ${items.join(', ')}.`);
+      });
+      if (!received.some((items) => items.length))
+        note(g, `No resources produced on ${roll}.`);
+    }
   } else if (a.type === 'end') {
     g.active = (p + 1) % 4;
     g.turn++;
