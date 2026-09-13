@@ -1,3 +1,9 @@
+import {
+  canEquip,
+  normalizeLoadout,
+  type Loadout,
+  type CosmeticSlot,
+} from '../lib/cosmetics.ts';
 import { randomBytes, randomInt, createHash } from 'node:crypto';
 import {
   mkdirSync,
@@ -18,14 +24,23 @@ import {
   type Game,
 } from '../packages/rules/game.ts';
 
-export type Offer = Extract<Action, { type: 'barter' }>;
+export type Offer = {
+  id: string;
+  owner: number;
+  turn: number;
+  give: number;
+  want: number;
+  interested: number[];
+};
 export type Room = {
   code: string;
   revision: number;
   updated: number;
-  seats: { name: string; hash: string }[];
+  seats: { name: string; hash: string; cosmetics?: Loadout }[];
   game: Game | null;
-  offer: Offer | null;
+  tradePost?: Offer | null;
+  /** Kept empty so older servers can safely reload snapshots on rollback. */
+  offer: null;
   lastMove?: Action['type'] | null;
 };
 export type RoomView = {
@@ -39,13 +54,17 @@ export type RoomView = {
   hands: number[];
   points: number[];
   deckCount: number;
+  cosmetics: Loadout[];
   lastMove: Action['type'] | null;
 };
 export type Command =
-  | { type: 'start' }
+  | { type: 'start'; mapId?: string }
+  | { type: 'equip-cosmetic'; slot: CosmeticSlot; id: string }
   | { type: 'action'; action: Action }
-  | { type: 'respond'; accept: boolean }
-  | { type: 'cancel-offer' };
+  | { type: 'post-offer'; give: number; want: number }
+  | { type: 'respond'; offerId: string; accept: boolean }
+  | { type: 'choose-trader'; offerId: string; partner: number }
+  | { type: 'cancel-offer'; offerId: string };
 const hash = (token: string) =>
   createHash('sha256').update(token).digest('hex');
 export const actorOf = (g: Game) =>
@@ -66,6 +85,17 @@ export class Rooms {
       const room = JSON.parse(
         readFileSync(join(directory, file), 'utf8'),
       ) as Room;
+      // Old directed offers are cancelled when upgrading a saved room.
+      room.offer = null;
+      room.tradePost ??= null;
+      if (
+        room.tradePost &&
+        (!room.game ||
+          room.game.turn !== room.tradePost.turn ||
+          room.game.active !== room.tradePost.owner ||
+          room.game.phase === 'over')
+      )
+        room.tradePost = null;
       if (Date.now() - room.updated < expiry) this.rooms.set(room.code, room);
       else unlinkSync(join(directory, file));
     }
@@ -104,6 +134,7 @@ export class Rooms {
       seats: [{ name: this.name(name), hash: hash(token) }],
       game: null,
       offer: null,
+      tradePost: null,
     };
     this.save(room);
     return { token, view: this.view(code, token) };
@@ -134,17 +165,30 @@ export class Rooms {
   command(code: string, token: string, revision: number, command: Command) {
     const room = structuredClone(this.get(code));
     const seat = this.seat(room, token);
-    if (revision !== room.revision)
+    // Interest is idempotent and tied to an immutable post ID, so peers may join concurrently.
+    const joining =
+      command?.type === 'respond' &&
+      Number.isInteger(revision) &&
+      revision <= room.revision;
+    if (revision !== room.revision && !joining)
       throw new Error('The table changed. Your view is refreshing; try again.');
     if (!command || typeof command !== 'object')
       throw new Error('Invalid command.');
     room.lastMove = null;
-    if (command.type === 'start') {
+    if (command.type === 'equip-cosmetic') {
+      // Anonymous room sessions may equip included items only. Never trust client ownership.
+      if (!canEquip(command.id, command.slot))
+        throw new Error('This cosmetic is not available to your session.');
+      room.seats[seat].cosmetics = normalizeLoadout({
+        ...room.seats[seat].cosmetics,
+        [command.slot]: command.id,
+      });
+    } else if (command.type === 'start') {
       if (seat !== 0 || room.game || room.seats.length !== 4)
         throw new Error(
           'The host can start once all four players have joined.',
         );
-      room.game = createGame(randomInt(1, 0xffffffff), true);
+      room.game = createGame(randomInt(1, 0xffffffff), true, command.mapId);
       room.game.players.forEach((p, i) => {
         p.name = room.seats[i].name;
       });
@@ -159,62 +203,96 @@ export class Rooms {
     } else {
       const g = room.game;
       if (!g) throw new Error('The match has not started.');
-      if (command.type === 'respond') {
+      if (command.type === 'post-offer') {
+        if (seat !== g.active || g.phase !== 'main' || g.freeRoads)
+          throw new Error('Post a trade during your turn after rolling.');
+        const { give, want } = command;
         if (
-          !room.offer ||
-          room.offer.partner !== seat ||
-          typeof command.accept !== 'boolean'
+          !Number.isInteger(give) ||
+          !Number.isInteger(want) ||
+          give < 0 ||
+          give > 4 ||
+          want < 0 ||
+          want > 4 ||
+          give === want ||
+          g.players[seat].resources[give] < 1
         )
-          throw new Error('No offer is waiting for you.');
-        if (command.accept) {
-          room.game = apply(g, room.offer);
+          throw new Error('Choose different resources and a card you own.');
+        if (room.tradePost)
+          throw new Error('Cancel your current post before creating another.');
+        room.tradePost = {
+          id: randomBytes(12).toString('hex'),
+          owner: seat,
+          turn: g.turn,
+          give,
+          want,
+          interested: [],
+        };
+      } else if (
+        command.type === 'respond' ||
+        command.type === 'choose-trader' ||
+        command.type === 'cancel-offer'
+      ) {
+        const offer = room.tradePost;
+        if (
+          !offer ||
+          command.offerId !== offer.id ||
+          offer.turn !== g.turn ||
+          offer.owner !== g.active
+        )
+          throw new Error('This trade post has closed.');
+        if (command.type === 'cancel-offer') {
+          if (seat !== offer.owner)
+            throw new Error('Only the owner can cancel this post.');
+          room.tradePost = null;
+        } else if (command.type === 'respond') {
+          if (seat === offer.owner || typeof command.accept !== 'boolean')
+            throw new Error('Only another player can join this trade.');
+          if (command.accept && g.players[seat].resources[offer.want] < 1)
+            throw new Error('You need the requested card to join this trade.');
+          offer.interested = offer.interested.filter((i) => i !== seat);
+          if (command.accept) offer.interested.push(seat);
+        } else {
+          if (
+            seat !== offer.owner ||
+            !offer.interested.includes(command.partner)
+          )
+            throw new Error('Choose a player who joined your trade.');
+          room.game = apply(g, {
+            type: 'barter',
+            give: offer.give,
+            want: offer.want,
+            partner: command.partner,
+          });
           room.lastMove = 'barter';
+          room.tradePost = null;
         }
-        room.offer = null;
-      } else if (command.type === 'cancel-offer') {
-        if (seat !== g.active || !room.offer)
-          throw new Error('You cannot cancel this offer.');
-        room.offer = null;
       } else if (command.type === 'action') {
         if (seat !== actorOf(g)) throw new Error('Wait for your turn.');
-        if (room.offer)
-          throw new Error('Wait for the trade response or cancel your offer.');
         const a = command.action;
         if (!a || typeof a !== 'object') throw new Error('Invalid move.');
-        if (a.type === 'barter') {
-          // Offers must not reveal whether the recipient has the requested card.
-          if (
-            Object.keys(a).length !== 4 ||
-            !this.offers(g).some(
-              (b) =>
-                b.give === a.give &&
-                b.want === a.want &&
-                b.partner === a.partner,
-            )
-          )
-            throw new Error('Invalid trade offer.');
-          room.offer = a;
-        } else {
-          room.game = apply({ ...g, rng: randomInt(1, 0xffffffff) }, a);
-          room.lastMove = a.type;
-        }
+        if (a.type === 'barter')
+          throw new Error('Refresh the page to use public trade posts.');
+        room.game = apply({ ...g, rng: randomInt(1, 0xffffffff) }, a);
+        room.lastMove = a.type;
+        // Keep posts through builds and temporary card phases, but never across turns.
+        const next = room.game;
+        if (
+          room.tradePost &&
+          (next.turn !== room.tradePost.turn ||
+            next.active !== room.tradePost.owner ||
+            next.phase === 'over')
+        )
+          room.tradePost = null;
+        if (room.tradePost)
+          room.tradePost.interested = room.tradePost.interested.filter(
+            (i) => next.players[i].resources[room.tradePost!.want] > 0,
+          );
       } else throw new Error('Unknown command.');
     }
     room.revision++;
     this.save(room);
     return this.view(code, token);
-  }
-  offers(g: Game): Offer[] {
-    const offers: Offer[] = [];
-    if (g.phase !== 'main' || g.freeRoads) return offers;
-    for (let give = 0; give < 5; give++)
-      if (g.players[g.active].resources[give] > 0)
-        for (let want = 0; want < 5; want++)
-          if (want !== give)
-            for (let partner = 0; partner < 4; partner++)
-              if (partner !== g.active)
-                offers.push({ type: 'barter', give, want, partner });
-    return offers;
   }
   view(code: string, token: string): RoomView {
     const room = this.get(code),
@@ -240,13 +318,10 @@ export class Rooms {
         online: Date.now() - (this.presence.get(`${code}:${i}`) ?? 0) < 15000,
       })),
       game,
-      offer: room.offer,
+      offer: room.tradePost ?? null,
       actions:
-        source && actorOf(source) === seat && !room.offer
-          ? [
-              ...legalActions(source).filter((a) => a.type !== 'barter'),
-              ...this.offers(source),
-            ]
+        source && actorOf(source) === seat
+          ? legalActions(source).filter((a) => a.type !== 'barter')
           : [],
       hands: source?.players.map((_, i) => hand(source, i)) ?? [],
       points:
@@ -254,6 +329,7 @@ export class Rooms {
           score(source, i, i !== seat && source.phase !== 'over'),
         ) ?? [],
       deckCount: source?.deck.length ?? 0,
+      cosmetics: room.seats.map((s) => normalizeLoadout(s.cosmetics)),
       lastMove: room.lastMove ?? null,
     };
   }

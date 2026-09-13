@@ -1,3 +1,4 @@
+import { DEFAULT_MAP_ID, playableMap } from './maps.ts';
 /** Pure, deterministic local rules. No renderer, browser APIs, I/O or clock. */
 export const RESOURCES = ['Timber', 'Clay', 'Wool', 'Grain', 'Stone'] as const;
 export const COLORS = ['#f2a93b', '#36b8bd', '#df655d', '#aa88e3'];
@@ -47,6 +48,8 @@ export interface Player {
 }
 export interface Game {
   version: 1;
+  /** Missing in legacy saves, which use Ember Isles v1. */
+  mapId?: string;
   seed: number;
   rng: number;
   hexes: Hex[];
@@ -105,9 +108,15 @@ function shuffle<T>(g: { rng: number }, a: T[]): T[] {
   }
   return a;
 }
-export function createGame(seed = 42, hotseat = false): Game {
+export function createGame(
+  seed = 42,
+  hotseat = false,
+  mapId = DEFAULT_MAP_ID,
+): Game {
+  const map = playableMap(mapId);
   const g: Game = {
     version: 1,
+    mapId: map.id,
     seed,
     rng: seed >>> 0 || 1,
     hexes: [],
@@ -136,7 +145,7 @@ export function createGame(seed = 42, hotseat = false): Game {
     route: null,
     command: null,
     winner: null,
-    target: 10,
+    target: map.victoryPoints,
     log: ['Welcome to the Ember Isles. Place your first settlement.'],
   };
   const terrains = shuffle(

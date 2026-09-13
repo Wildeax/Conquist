@@ -10,6 +10,7 @@ import {
 } from '@/packages/rules/game';
 import { createEnvironment } from '@/lib/scene/environment';
 import { createModel, part } from '@/lib/scene/models';
+import { mapPalette } from '@/lib/cosmetics';
 import { OCEAN_HORIZON } from '@/lib/scene/water';
 type Props = {
   game: Game;
@@ -17,8 +18,10 @@ type Props = {
   onAction: (a: Action) => void;
   view: number;
   lite: boolean;
+  mapSkin?: string;
 };
 type Runtime = {
+  scene: T.Scene;
   pieces: T.Group;
   targets: T.Group;
   camera: T.PerspectiveCamera;
@@ -57,8 +60,30 @@ function dispose(root: T.Object3D) {
   mats.forEach((m) => m.dispose());
   textures.forEach((t) => t.dispose());
 }
-export default function Board({ game, actions, onAction, view, lite }: Props) {
-  const terrain = useMemo(() => createGame(game.seed), [game.seed]),
+function applyMapSkin(scene: T.Scene, id: string) {
+  const palette = mapPalette(id);
+  scene.background = new T.Color(palette.horizon);
+  const ocean = scene.getObjectByName('animated-ocean') as
+    | T.Mesh<T.PlaneGeometry, T.ShaderMaterial>
+    | undefined;
+  if (ocean) {
+    ocean.material.uniforms.uHorizon.value.set(palette.horizon);
+    ocean.material.uniforms.uDeep.value.setRGB(...palette.deep);
+    ocean.material.uniforms.uShallow.value.setRGB(...palette.shallow);
+  }
+}
+export default function Board({
+  game,
+  actions,
+  onAction,
+  view,
+  lite,
+  mapSkin = 'map.ember',
+}: Props) {
+  const terrain = useMemo(
+      () => createGame(game.seed, false, game.mapId),
+      [game.seed, game.mapId],
+    ),
     host = useRef<HTMLDivElement>(null),
     runtime = useRef<Runtime | null>(null),
     latest = useRef({ actions, onAction });
@@ -130,6 +155,7 @@ export default function Board({ game, actions, onAction, view, lite }: Props) {
       targets = new T.Group();
     scene.add(pieces, targets);
     const rt: Runtime = {
+      scene,
       pieces,
       targets,
       camera,
@@ -218,6 +244,12 @@ export default function Board({ game, actions, onAction, view, lite }: Props) {
       runtime.current = null;
     };
   }, [terrain, lite]);
+  useEffect(() => {
+    const scene = runtime.current?.scene;
+    if (!scene) return;
+    applyMapSkin(scene, mapSkin);
+  }, [mapSkin, terrain, lite]);
+
   useEffect(() => {
     const rt = runtime.current;
     if (!rt) return;

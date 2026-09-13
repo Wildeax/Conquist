@@ -12,6 +12,7 @@ async function request<T = RoomView>(
   const response = await fetch(`/api/rooms${path}`, {
     method: body ? 'POST' : 'GET',
     headers: {
+      'X-Conquist-Protocol': '2',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(body ? { 'Content-Type': 'application/json' } : {}),
     },
