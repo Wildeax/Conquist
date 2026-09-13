@@ -1680,14 +1680,25 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 34px;
-  padding: 5px 12px;
-  border-top: 1px solid #a88c5238;
-  background: #14282c;
+  min-height: 22px;
+  padding: 2px 12px;
+  border: 0;
+  background: transparent;
+}
+.action-strip:not(
+  :has(
+    .action-message:not(:empty),
+    .feedback-status:not(:empty),
+    .placement-panel,
+    .cancel-build
+  )
+) {
+  display: none;
 }
 .action-message {
   font-size: 13px;
   color: #ead4a4;
+  text-shadow: 0 2px 4px #000;
 }
 .action-strip .placement-panel {
   position: static;
