@@ -333,7 +333,7 @@ export default function Home() {
                           ? 'Move the Raider (robber), then choose whom to steal from'
                           : build
                             ? `Choose a glowing location for your ${build}`
-                            : 'Trade, build, or draw your next Fortune.';
+                            : '';
   const tradeAction: Action =
       partner === -1
         ? { type: 'trade', give, want }
@@ -604,9 +604,7 @@ export default function Home() {
               <div className="board-topline">
                 <div>
                   <span className="eyebrow">THE EMBER ISLES</span>
-                  <p>
-                    Turn {game.turn} <span>•</span> Seed {game.seed}
-                  </p>
+                  <p>Turn {game.turn}</p>
                 </div>
                 <div className="camera-actions">
                   <button
@@ -702,7 +700,7 @@ export default function Home() {
               aria-atomic="true"
             />
 
-            <output className="action-message">{message}</output>
+            {message && <output className="action-message">{message}</output>}
             {!bot && !handoff && preview && (
               <section
                 className="placement-panel"
@@ -1110,16 +1108,6 @@ export default function Home() {
                     ? 'Reduced motion is enabled on your device. Movement effects are paused.'
                     : 'Controls resource flights, piece motion, and visual highlights. Sound has its own setting.'}
                 </small>
-              </label>
-              <label className="field">
-                Island seed
-                <input
-                  value={seed}
-                  onChange={(e) => setSeed(e.target.value)}
-                  type="number"
-                  min="0"
-                  max="4294967295"
-                />
               </label>
               <button className="setting-toggle" onClick={() => setLite(!lite)}>
                 <span>

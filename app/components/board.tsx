@@ -293,13 +293,9 @@ export default function Board({
         const mat = (m as T.Mesh).material as T.MeshStandardMaterial;
         const pulse = 0.5 + Math.sin(elapsed * 4.2) * 0.5;
         const hovered = m === hover;
-        mat.emissiveIntensity = hovered
-          ? 2.2
-          : rt.reduced
-            ? 1
-            : 0.65 + pulse * 1.25;
-        mat.opacity = hovered ? 1 : rt.reduced ? 0.92 : 0.68 + pulse * 0.28;
-        const scale = hovered ? 1.22 : rt.reduced ? 1.1 : 0.9 + pulse * 0.32;
+        mat.emissiveIntensity = hovered ? 2 : rt.reduced ? 1 : 0.8 + pulse;
+        mat.opacity = hovered ? 1 : rt.reduced ? 0.9 : 0.74 + pulse * 0.2;
+        const scale = hovered ? 1.1 : rt.reduced ? 1.02 : 0.97 + pulse * 0.1;
         m.scale.setScalar(scale);
       }
       controls.update();
