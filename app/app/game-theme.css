@@ -2175,3 +2175,6 @@
     padding-top: 8px;
   }
 }
+.table-sidebar {
+  grid-row: 1;
+}
