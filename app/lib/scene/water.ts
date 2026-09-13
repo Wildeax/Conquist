@@ -4,6 +4,8 @@ export function createWater(centers: T.Vector2[], lite: boolean) {
   const material = new T.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
+      uDeep: { value: new T.Color().setRGB(0.009, 0.06, 0.085) },
+      uShallow: { value: new T.Color().setRGB(0.025, 0.19, 0.2) },
       uDetail: { value: lite ? 0 : 1 },
       uHorizon: { value: new T.Color(OCEAN_HORIZON) },
       uTiles: { value: centers },
@@ -14,7 +16,7 @@ uniform float uTime;
 void main(){vec4 w=modelMatrix*vec4(position,1.);vWorld=w.xyz;gl_Position=projectionMatrix*viewMatrix*w;}`,
     fragmentShader: `precision highp float;
 varying vec3 vWorld;uniform float uTime;uniform vec2 uTiles[19];uniform vec3 uSun;
-uniform float uDetail;uniform vec3 uHorizon;
+uniform float uDetail;uniform vec3 uHorizon;uniform vec3 uDeep;uniform vec3 uShallow;
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 vec2 gradient(vec2 cell){float angle=hash(cell)*6.2831853;return vec2(cos(angle),sin(angle));}
 // Gradient noise avoids the flat cell centers of value noise. Quintic blending
@@ -39,7 +41,7 @@ float gloss=1./(1./48.+variance*2.);
 float spec=pow(max(dot(n,normalize(uSun+v)),0.),gloss)*(gloss/48.);
 float fres=reflectance(dot(n,v));
 float shore=100.;for(int i=0;i<19;i++){vec2 q=abs(p-uTiles[i]);float d=max(q.x,q.x*.5+q.y*.866025)-.85;shore=min(shore,d);}
-vec3 deep=vec3(.009,.06,.085),shallow=vec3(.025,.19,.20);vec3 col=mix(shallow,deep,smoothstep(0.,2.8,shore));col+=(w-.5)*.014;col=mix(col,vec3(.11,.20,.23),fres*.38);col+=vec3(.9,.78,.56)*spec*.085*detail;
+vec3 deep=uDeep,shallow=uShallow;vec3 col=mix(shallow,deep,smoothstep(0.,2.8,shore));col+=(w-.5)*.014;col=mix(col,vec3(.11,.20,.23),fres*.38);col+=vec3(.9,.78,.56)*spec*.085*detail;
 float foam=(1.-smoothstep(.015,.17,shore))*smoothstep(-.035,.025,shore);foam*=smoothstep(.32,.72,noise(p*4.+vec2(uTime*.12,-uTime*.08)))*.4;col=mix(col,vec3(.38,.57,.52),foam);gl_FragColor=vec4(col,1.);
 #include <tonemapping_fragment>
 // Match the background after exposure but before output color conversion.

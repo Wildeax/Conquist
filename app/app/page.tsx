@@ -6,6 +6,12 @@ import { useGameTools } from '@/lib/use-game-tools';
 import { gameAudio, actionCue } from '@/lib/audio';
 import { useOnlineRoom } from '@/lib/use-online-room';
 import { botPresentation } from '@/packages/rules/bot-presentation';
+import {
+  CosmeticsPicker,
+  useLocalCosmetics,
+} from '@/components/cosmetics-picker';
+import { DEFAULT_LOADOUT } from '@/lib/cosmetics';
+import { TradePost } from '@/components/trade-post';
 import { OnlineLobby } from '@/components/online-lobby';
 import {
   Compass,
@@ -67,6 +73,10 @@ const icons = [TreePine, BrickWall, Cloud, Wheat, Mountain],
   storageKey = 'conquist-local-v1';
 export default function Home() {
   const online = useOnlineRoom();
+  const appearance = useLocalCosmetics();
+  const loadout = online.session
+    ? (online.view?.cosmetics?.[online.view.seat] ?? DEFAULT_LOADOUT)
+    : appearance.loadout;
   const sendOnline = online.send;
   const onlineSeed = online.view?.game?.seed;
   const [roomMenu, setRoomMenu] = useState(false);
@@ -187,10 +197,7 @@ export default function Home() {
       game.phase === 'discard' ? game.discard.findIndex((n) => n > 0) : -1,
     actor = discarder >= 0 ? discarder : game.active,
     bot = network
-      ? actor !== online.view?.seat ||
-        online.busy ||
-        !online.connected ||
-        !!online.view?.offer
+      ? actor !== online.view?.seat || online.busy || !online.connected
       : game.players[actor].bot,
     local = !network && game.players.every((p) => !p.bot),
     viewer = network ? (online.view?.seat ?? 0) : local ? actor : 0,
@@ -288,38 +295,43 @@ export default function Home() {
         ? 'Connection lost. Reconnecting to your table...'
         : network && online.busy
           ? 'Sending your move...'
-          : network && online.view?.offer
-            ? 'Waiting for a trade response.'
-            : network && actor !== viewer
-              ? `${game.players[actor].name} is taking their turn...`
-              : handoff
-                ? 'Pass the device to the next player.'
-                : bot
-                  ? `${game.players[actor].name} ${botThought}`
-                  : game.phase === 'setup-settlement'
-                    ? `Place your ${game.setup < 4 ? 'first' : 'second'} settlement`
-                    : game.phase === 'setup-road'
-                      ? 'Build a road from your new settlement'
-                      : game.phase === 'roll'
-                        ? 'Your turn. Roll the dice.'
-                        : game.phase === 'discard'
-                          ? `Discard ${game.discard[actor]} resource cards`
-                          : game.phase === 'raider'
-                            ? 'Move the Raider to another tile'
-                            : build
-                              ? `Choose a glowing location for your ${build}`
-                              : 'Trade, build, or draw your next Fortune.';
+          : network && actor !== viewer
+            ? `${game.players[actor].name} is taking their turn...`
+            : handoff
+              ? 'Pass the device to the next player.'
+              : bot
+                ? `${game.players[actor].name} ${botThought}`
+                : game.phase === 'setup-settlement'
+                  ? `Place your ${game.setup < 4 ? 'first' : 'second'} settlement`
+                  : game.phase === 'setup-road'
+                    ? 'Build a road from your new settlement'
+                    : game.phase === 'roll'
+                      ? 'Your turn. Roll the dice.'
+                      : game.phase === 'discard'
+                        ? `Discard ${game.discard[actor]} resource cards`
+                        : game.phase === 'raider'
+                          ? 'Move the Raider to another tile'
+                          : build
+                            ? `Choose a glowing location for your ${build}`
+                            : 'Trade, build, or draw your next Fortune.';
   const tradeAction: Action =
       partner === -1
         ? { type: 'trade', give, want }
         : { type: 'barter', give, want, partner },
-    validTrade = all.some(
-      (a) => JSON.stringify(a) === JSON.stringify(tradeAction),
-    );
+    validTrade =
+      network && partner !== -1
+        ? !bot &&
+          game.phase === 'main' &&
+          !game.freeRoads &&
+          !online.view?.offer &&
+          give !== want &&
+          player.resources[give] > 0
+        : all.some((a) => JSON.stringify(a) === JSON.stringify(tradeAction));
   function trade() {
     if (!validTrade) return;
     if (network) {
-      act(tradeAction);
+      if (partner === -1) act(tradeAction);
+      else void online.send({ type: 'post-offer', give, want });
       setModal(null);
       return;
     }
@@ -358,7 +370,10 @@ export default function Home() {
       );
   }
   return (
-    <main className={`conquist${playing ? ' is-playing' : ''}`}>
+    <main
+      className={`conquist${playing ? ' is-playing' : ''}`}
+      data-map-skin={loadout.map}
+    >
       {(roomMenu || (network && !playing)) && (
         <OnlineLobby
           online={online}
@@ -375,50 +390,14 @@ export default function Home() {
           {online.error}
         </output>
       )}
-      {network && playing && online.view?.offer && (
-        <section className="online-offer" aria-label="Trade offer">
-          <p>
-            {game.players[game.active].name} offers 1{' '}
-            {RESOURCES[online.view.offer.give]} for 1{' '}
-            {RESOURCES[online.view.offer.want]} from{' '}
-            {game.players[online.view.offer.partner].name}.
-          </p>
-          {online.view.offer.partner === viewer && (
-            <>
-              <button
-                className="primary"
-                disabled={
-                  online.busy ||
-                  !online.connected ||
-                  !player.resources[online.view.offer.want]
-                }
-                onClick={() =>
-                  void online.send({ type: 'respond', accept: true })
-                }
-              >
-                Accept trade
-              </button>
-              <button
-                className="secondary"
-                disabled={online.busy || !online.connected}
-                onClick={() =>
-                  void online.send({ type: 'respond', accept: false })
-                }
-              >
-                Decline
-              </button>
-            </>
-          )}
-          {game.active === viewer && (
-            <button
-              className="secondary"
-              disabled={online.busy || !online.connected}
-              onClick={() => void online.send({ type: 'cancel-offer' })}
-            >
-              Cancel offer
-            </button>
-          )}
-        </section>
+      {network && playing && !modal && !roomMenu && online.view?.offer && (
+        <TradePost
+          offer={online.view.offer}
+          game={game}
+          viewer={viewer}
+          disabled={online.busy || !online.connected}
+          send={online.send}
+        />
       )}
       <header className="topbar">
         <button
@@ -549,6 +528,13 @@ export default function Home() {
               {game.players.map((p, i) => (
                 <div
                   className={`player-card ${game.active === i ? 'active' : ''}`}
+                  data-profile-skin={
+                    network
+                      ? online.view?.cosmetics?.[i]?.profile
+                      : i === viewer
+                        ? loadout.profile
+                        : 'profile.classic'
+                  }
                   key={i}
                   style={{ '--player': COLORS[i] } as React.CSSProperties}
                 >
@@ -656,6 +642,7 @@ export default function Home() {
               </div>
               <Board
                 game={game}
+                mapSkin={loadout.map}
                 actions={selectable}
                 onAction={onBoardAction}
                 view={view}
@@ -824,7 +811,10 @@ export default function Home() {
               </button>
               <button
                 className="build-button"
-                onClick={() => setModal('trade')}
+                onClick={() => {
+                  if (network) setPartner(-2);
+                  setModal('trade');
+                }}
                 disabled={bot || handoff || game.phase !== 'main'}
               >
                 <ArrowLeftRight size={21} />
@@ -998,9 +988,10 @@ export default function Home() {
                   and can be taken by a rival who exceeds your record.
                 </p>
                 <p className="muted">
-                  This alpha supports solo games and four-player pass-and-play
-                  on one device. Your game saves in this browser. Online rooms
-                  are still in development.
+                  Play solo, pass the device between four players, or invite
+                  friends to an online room. Public trade posts stay open until
+                  the turn ends; the owner chooses an interested player to
+                  complete the exchange.
                 </p>
               </div>
               <button className="primary" onClick={() => setModal(null)}>
@@ -1014,6 +1005,15 @@ export default function Home() {
               <DialogDescription>
                 Set up your next expedition.
               </DialogDescription>
+              <CosmeticsPicker
+                loadout={loadout}
+                disabled={network && (online.busy || !online.connected)}
+                equip={(slot, id) => {
+                  if (network)
+                    void online.send({ type: 'equip-cosmetic', slot, id });
+                  else appearance.equip(slot, id);
+                }}
+              />
               <label className="field">
                 Island seed
                 <input
@@ -1072,7 +1072,7 @@ export default function Home() {
             <>
               <DialogTitle>A fair exchange</DialogTitle>
               <DialogDescription>
-                Choose your resources and trading partner.
+                Choose what to give and what you need.
               </DialogDescription>
               <div className="trade-targets">
                 <button
@@ -1081,54 +1081,87 @@ export default function Home() {
                 >
                   <Anchor size={16} /> Bank
                 </button>
-                {game.players.map(
-                  (p, i) =>
-                    i !== viewer && (
-                      <button
-                        key={i}
-                        className={partner === i ? 'selected' : ''}
-                        onClick={() => setPartner(i)}
-                      >
-                        {p.name}
-                      </button>
-                    ),
+                {network && (
+                  <button
+                    className={partner !== -1 ? 'selected' : ''}
+                    aria-pressed={partner !== -1}
+                    onClick={() => setPartner(-2)}
+                  >
+                    <ArrowLeftRight size={16} /> Public post
+                  </button>
                 )}
+                {!network &&
+                  game.players.map(
+                    (p, i) =>
+                      i !== viewer && (
+                        <button
+                          key={i}
+                          className={partner === i ? 'selected' : ''}
+                          onClick={() => setPartner(i)}
+                        >
+                          {p.name}
+                        </button>
+                      ),
+                  )}
               </div>
-              <div className="trade-grid">
-                <label className="field">
-                  You give
-                  <select
-                    value={give}
-                    onChange={(e) => setGive(+e.target.value)}
-                  >
-                    {RESOURCES.map((r, i) => (
-                      <option key={r} value={i}>
-                        {partner === -1 ? rate(game, viewer, i) : 1} {r}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <ArrowLeftRight />
-                <label className="field">
-                  You receive
-                  <select
-                    value={want}
-                    onChange={(e) => setWant(+e.target.value)}
-                  >
-                    {RESOURCES.map((r, i) => (
-                      <option key={r} value={i}>
-                        1 {r}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              <div className="trade-picker">
+                {(['give', 'want'] as const).map((side) => (
+                  <fieldset key={side}>
+                    <legend>
+                      {side === 'give' ? 'You give' : 'You receive'}
+                    </legend>
+                    <div className="trade-resources">
+                      {RESOURCES.map((resource, i) => {
+                        const Icon = icons[i];
+                        const amount =
+                          side === 'give' && partner === -1
+                            ? rate(game, viewer, i)
+                            : 1;
+                        const unavailable =
+                          side === 'give'
+                            ? player.resources[i] < amount
+                            : i === give;
+                        return (
+                          <button
+                            key={resource}
+                            type="button"
+                            aria-pressed={(side === 'give' ? give : want) === i}
+                            disabled={unavailable}
+                            onClick={() =>
+                              side === 'give' ? setGive(i) : setWant(i)
+                            }
+                          >
+                            <Icon size={22} />
+                            <strong>
+                              {amount} {resource}
+                            </strong>
+                            <small>
+                              {side === 'give'
+                                ? `${player.resources[i]} in hand`
+                                : partner === -1
+                                  ? `${game.bank[i]} in bank`
+                                  : 'Request from players'}
+                            </small>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
+                ))}
               </div>
+              <p className="trade-summary">
+                Give {partner === -1 ? rate(game, viewer, give) : 1}{' '}
+                {RESOURCES[give]} <ArrowRight size={16} /> Receive 1{' '}
+                {RESOURCES[want]}
+              </p>
               <p className="muted">
                 {partner === -1
                   ? 'Your best harbour rate is applied automatically.'
-                  : local
-                    ? 'The other player must agree before resources change hands.'
-                    : 'Your opponent may accept or decline this offer.'}
+                  : network
+                    ? 'Open until your turn ends. Players join, then you choose who to trade with. You can keep building while you wait.'
+                    : local
+                      ? 'The other player must agree before resources change hands.'
+                      : 'Your opponent may accept or decline this offer.'}
               </p>
               {notice && <output>{notice}</output>}
               <button
@@ -1136,13 +1169,18 @@ export default function Home() {
                 disabled={!validTrade}
                 onClick={trade}
               >
-                {partner === -1 ? 'Complete trade' : 'Offer trade'}{' '}
+                {partner === -1
+                  ? 'Trade with bank'
+                  : network
+                    ? 'Post for everyone'
+                    : 'Offer trade'}{' '}
                 <ArrowLeftRight size={18} />
               </button>
               {!validTrade && (
                 <p className="muted">
-                  Choose different resources with enough cards available on both
-                  sides.
+                  {network && partner !== -1 && online.view?.offer
+                    ? 'You already have a public post. Cancel it to post a different trade.'
+                    : 'Choose different resources. You need enough cards to give, and bank trades need stock in the bank.'}
                 </p>
               )}
             </>

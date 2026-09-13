@@ -85,39 +85,102 @@ test('private views redact resource composition, cards, deck order, RNG and cred
   assert.ok(!JSON.stringify(view).includes('hash'));
 });
 
-test('trade offers require recipient consent and survive reconnect without leaking holdings', (t) => {
+test('public posts collect multiple interested players; owner chooses one and reconnect preserves consent', (t) => {
   const { rooms, code, tokens, send, directory } = table(t);
   send(0, { type: 'start' });
   const g = rooms.get(code).game!;
   g.phase = 'main';
-  g.players[0].resources[0] = 1;
-  g.players[1].resources[1] = 1;
-  const offer = { type: 'barter', give: 0, want: 1, partner: 1 } as const;
-  send(0, { type: 'action', action: offer });
-  assert.equal(rooms.get(code).game!.players[0].resources[0], 1);
-  assert.throws(() => send(2, { type: 'respond', accept: true }), /No offer/);
+  g.players[0].resources = [2, 0, 0, 0, 0];
+  g.players[1].resources = [0, 1, 0, 0, 0];
+  g.players[2].resources = [0, 1, 0, 0, 0];
+  const post = send(0, { type: 'post-offer', give: 0, want: 1 }).offer!;
+  const simultaneousRevision = rooms.get(code).revision;
+  rooms.command(code, tokens[1], simultaneousRevision, {
+    type: 'respond',
+    offerId: post.id,
+    accept: true,
+  });
+  rooms.command(code, tokens[2], simultaneousRevision, {
+    type: 'respond',
+    offerId: post.id,
+    accept: true,
+  });
+  assert.deepEqual(
+    new Rooms(directory).view(code, tokens[0]).offer!.interested,
+    [1, 2],
+  );
+  assert.equal(rooms.get(code).game!.players[0].resources[0], 2);
+  assert.ok(rooms.view(code, tokens[0]).actions.some((a) => a.type === 'end'));
   assert.throws(
-    () => send(0, { type: 'action', action: { type: 'end' } }),
-    /trade response/,
+    () => send(1, { type: 'choose-trader', offerId: post.id, partner: 2 }),
+    /Choose a player/,
   );
-  assert.deepEqual(new Rooms(directory).view(code, tokens[1]).offer, offer);
-  send(1, { type: 'respond', accept: false });
-  assert.equal(rooms.get(code).game!.players[0].resources[0], 1);
-  send(0, { type: 'action', action: offer });
-  send(1, { type: 'respond', accept: true });
-  assert.equal(rooms.get(code).game!.players[0].resources[1], 1);
-  assert.equal(rooms.get(code).game!.players[1].resources[0], 1);
-  // A request for an absent resource is still offerable, without exposing holdings.
-  const absent = { type: 'barter', give: 1, want: 4, partner: 2 } as const;
-  assert.ok(
-    rooms
-      .view(code, tokens[0])
-      .actions.some((a) => JSON.stringify(a) === JSON.stringify(absent)),
+  send(0, { type: 'choose-trader', offerId: post.id, partner: 2 });
+  assert.equal(rooms.get(code).game!.players[2].resources[0], 1);
+  assert.equal(rooms.get(code).game!.players[1].resources[1], 1);
+  assert.equal(rooms.get(code).tradePost, null);
+  assert.throws(
+    () => send(0, { type: 'choose-trader', offerId: post.id, partner: 1 }),
+    /closed/,
   );
-  send(0, { type: 'action', action: absent });
-  assert.throws(() => send(2, { type: 'respond', accept: true }), /not legal/);
-  send(0, { type: 'cancel-offer' });
-  assert.equal(rooms.get(code).offer, null);
+});
+
+test('posts expire on end turn and protect withdrawal, stale IDs, holdings and turn authorization', (t) => {
+  const { rooms, code, send } = table(t);
+  send(0, { type: 'start' });
+  const g = rooms.get(code).game!;
+  g.phase = 'main';
+  g.players[0].resources = [5, 0, 0, 0, 0];
+  g.players[1].resources = [0, 1, 0, 0, 0];
+  assert.throws(
+    () => send(1, { type: 'post-offer', give: 1, want: 0 }),
+    /your turn/,
+  );
+  assert.throws(
+    () => send(0, { type: 'post-offer', give: -1, want: 0 }),
+    /different/,
+  );
+  assert.throws(
+    () =>
+      send(0, {
+        type: 'action',
+        action: { type: 'barter', give: 0, want: 1, partner: 1 },
+      }),
+    /public/,
+  );
+  const post = send(0, { type: 'post-offer', give: 0, want: 1 }).offer!;
+  assert.throws(
+    () => send(2, { type: 'respond', offerId: post.id, accept: true }),
+    /requested card/,
+  );
+  assert.throws(
+    () => send(1, { type: 'cancel-offer', offerId: post.id }),
+    /owner/,
+  );
+  send(1, { type: 'respond', offerId: post.id, accept: true });
+  send(1, { type: 'respond', offerId: post.id, accept: false });
+  assert.throws(
+    () => send(0, { type: 'choose-trader', offerId: post.id, partner: 1 }),
+    /joined/,
+  );
+  send(0, { type: 'action', action: { type: 'trade', give: 0, want: 2 } });
+  assert.equal(rooms.get(code).tradePost!.id, post.id);
+  send(0, { type: 'cancel-offer', offerId: post.id });
+  const replacement = send(0, { type: 'post-offer', give: 0, want: 1 }).offer!;
+  assert.notEqual(replacement.id, post.id);
+  assert.throws(
+    () => send(1, { type: 'respond', offerId: post.id, accept: true }),
+    /closed/,
+  );
+  send(1, { type: 'respond', offerId: replacement.id, accept: true });
+  rooms.get(code).game!.players[0].resources[0] = 0;
+  assert.throws(
+    () =>
+      send(0, { type: 'choose-trader', offerId: replacement.id, partner: 1 }),
+    /not legal/,
+  );
+  send(0, { type: 'action', action: { type: 'end' } });
+  assert.equal(rooms.get(code).tradePost, null);
 });
 
 test('discard authorization follows the discarding seat, not the turn owner', (t) => {
@@ -226,4 +289,67 @@ test('HTTP clients create, join, start, reject stale moves and restore sessions'
       .status,
     400,
   );
+});
+
+test('cosmetic selections are validated, seat-specific and separate from game state', (t) => {
+  const { rooms, code, tokens, send, directory } = table(t);
+  send(0, { type: 'start' });
+  const before = structuredClone(rooms.get(code).game);
+  send(1, { type: 'equip-cosmetic', slot: 'profile', id: 'profile.brass' });
+  assert.equal(
+    new Rooms(directory).view(code, tokens[0]).cosmetics[1].profile,
+    'profile.brass',
+  );
+  assert.equal(
+    rooms.view(code, tokens[1]).cosmetics[0].profile,
+    'profile.classic',
+  );
+  assert.deepEqual(rooms.get(code).game, before);
+  assert.throws(
+    () =>
+      send(1, { type: 'equip-cosmetic', slot: 'pieces', id: 'pieces.founder' }),
+    /not available/,
+  );
+  assert.throws(
+    () => send(1, { type: 'equip-cosmetic', slot: 'map', id: 'profile.brass' }),
+    /not available/,
+  );
+  assert.throws(
+    () => send(1, { type: 'equip-cosmetic', slot: 'profile', id: '__proto__' }),
+    /not available/,
+  );
+});
+
+test('HTTP protocol hides new posts from older tabs and preserves rollback-compatible snapshots', async (t) => {
+  const { rooms, code, tokens, send, directory } = table(t);
+  send(0, { type: 'start' });
+  rooms.get(code).game!.phase = 'main';
+  rooms.get(code).game!.players[0].resources[0] = 2;
+  send(0, { type: 'post-offer', give: 0, want: 1 });
+  const persisted = JSON.parse(
+    readFileSync(join(directory, `${code}.json`), 'utf8'),
+  );
+  assert.equal(persisted.offer, null);
+  assert.ok(persisted.tradePost.id);
+  const server = createRoomServer(directory);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const url = `http://127.0.0.1:${address.port}/api/rooms/${code}`;
+  const old = await fetch(url, {
+    headers: { Authorization: `Bearer ${tokens[1]}` },
+  });
+  const oldView = (await old.json()) as RoomView;
+  assert.equal(oldView.offer, null);
+  const modern = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${tokens[1]}`,
+      'X-Conquist-Protocol': '2',
+    },
+  });
+  const newView = (await modern.json()) as RoomView;
+  assert.equal(newView.offer!.id, persisted.tradePost.id);
+  assert.equal(newView.revision, oldView.revision);
+  assert.deepEqual(newView.game, oldView.game);
 });
