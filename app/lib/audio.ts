@@ -1,5 +1,6 @@
 import type { Action } from '@/packages/rules/game';
 export type Cue =
+  | 'collect'
   | 'dice'
   | 'build'
   | 'city'
@@ -182,6 +183,11 @@ class GameAudio {
     if (t - this.lastCue < 0.035) return;
     this.lastCue = t;
     switch (cue) {
+      case 'collect':
+        [784, 988, 1175].forEach((f, i) =>
+          this.tone(f, t + i * 0.075, 0.22, 0.055),
+        );
+        break;
       case 'dice':
         for (let i = 0; i < 9; i++) {
           this.hit(t + i * 0.047, 0.09, 0.85 - i * 0.055, 1100 + i * 140);

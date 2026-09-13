@@ -10,6 +10,8 @@ import {
 } from '@/packages/rules/game';
 import { createEnvironment } from '@/lib/scene/environment';
 import { createModel, part } from '@/lib/scene/models';
+import { mountSceneFeedback } from '@/lib/scene/feedback';
+import { feedbackPolicy, type FeedbackLevel } from '@/packages/rules/feedback';
 import { mapPalette } from '@/lib/cosmetics';
 import { OCEAN_HORIZON } from '@/lib/scene/water';
 type Props = {
@@ -19,6 +21,8 @@ type Props = {
   view: number;
   lite: boolean;
   mapSkin?: string;
+  feedbackLevel?: FeedbackLevel;
+  reducedMotion?: boolean;
 };
 type Runtime = {
   scene: T.Scene;
@@ -27,8 +31,11 @@ type Runtime = {
   camera: T.PerspectiveCamera;
   controls: OrbitControls;
   reduced: boolean;
-  pieceKeys: Set<string>;
 };
+function updateReducedMotion(runtime: Runtime, reduced: boolean) {
+  runtime.reduced = reduced;
+  runtime.controls.enableDamping = !reduced;
+}
 function fitBoard(camera: T.PerspectiveCamera, controls: OrbitControls) {
   const halfFov = Math.atan(
     Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * Math.min(camera.aspect, 1),
@@ -79,6 +86,8 @@ export default function Board({
   view,
   lite,
   mapSkin = 'map.ember',
+  feedbackLevel = 'full',
+  reducedMotion = false,
 }: Props) {
   const terrain = useMemo(
       () => createGame(game.seed, false, game.mapId),
@@ -161,7 +170,6 @@ export default function Board({
       camera,
       controls,
       reduced,
-      pieceKeys: new Set(),
     };
     runtime.current = rt;
     const ray = new T.Raycaster(),
@@ -212,23 +220,16 @@ export default function Board({
       const delta = previous ? Math.min((now - previous) / 1000, 0.05) : 0;
       previous = now;
       if (document.hidden) return;
-      if (!reduced) elapsed += delta;
+      if (!rt.reduced) elapsed += delta;
       environment.update(elapsed);
       for (const m of targets.children) {
         const mat = (m as T.Mesh).material as T.MeshStandardMaterial;
         mat.emissiveIntensity =
           m === hover
             ? 1.1
-            : reduced
+            : rt.reduced
               ? 0.32
               : 0.28 + Math.sin(elapsed * 2.8) * 0.12;
-      }
-      for (const m of pieces.children) {
-        if (m.userData.entering) {
-          const scale = Math.min(1, m.scale.x + delta * 3);
-          m.scale.setScalar(scale);
-          if (scale === 1) m.userData.entering = false;
-        }
       }
       controls.update();
       renderer.render(scene, camera);
@@ -254,24 +255,25 @@ export default function Board({
     const rt = runtime.current;
     if (!rt) return;
     const snapshot = structuredClone(game);
-    dispose(rt.pieces);
-    rt.pieces.clear();
     dispose(rt.targets);
     rt.targets.clear();
     const nextKeys = new Set<string>();
-    function add(model: T.Group, key: string, x: number, z: number) {
-      model.position.set(x, 0.215, z);
-      if (!rt!.pieceKeys.has(key) && rt!.pieceKeys.size > 0 && !rt!.reduced) {
-        model.scale.setScalar(0.12);
-        model.userData.entering = true;
+    const existing = new Map(
+      rt.pieces.children.map((piece) => [piece.name, piece]),
+    );
+    function add(make: () => T.Group, key: string, x: number, z: number) {
+      if (!existing.has(key)) {
+        const model = make();
+        model.position.set(x, 0.215, z);
+        model.name = key;
+        rt!.pieces.add(model);
       }
-      rt!.pieces.add(model);
       nextKeys.add(key);
     }
     for (const v of snapshot.vertices)
       if (v.owner !== null)
         add(
-          createModel(v.city ? 'city' : 'settlement', COLORS[v.owner]),
+          () => createModel(v.city ? 'city' : 'settlement', COLORS[v.owner!]),
           `v${v.id}-${v.city}`,
           v.x,
           v.z,
@@ -279,14 +281,28 @@ export default function Board({
     for (const e of snapshot.edges)
       if (e.owner !== null) {
         const a = snapshot.vertices[e.a],
-          b = snapshot.vertices[e.b],
-          road = createModel('road', COLORS[e.owner]);
-        road.rotation.y = Math.atan2(b.x - a.x, b.z - a.z);
-        add(road, `e${e.id}`, (a.x + b.x) / 2, (a.z + b.z) / 2);
+          b = snapshot.vertices[e.b];
+        add(
+          () => {
+            const road = createModel('road', COLORS[e.owner!]);
+            road.rotation.y = Math.atan2(b.x - a.x, b.z - a.z);
+            return road;
+          },
+          `e${e.id}`,
+          (a.x + b.x) / 2,
+          (a.z + b.z) / 2,
+        );
       }
     const h = snapshot.hexes[snapshot.raider];
-    add(createModel('raider'), `raider${h.id}`, h.x + 0.29, h.z - 0.11);
-    rt.pieceKeys = nextKeys;
+    add(() => createModel('raider'), `raider${h.id}`, h.x + 0.29, h.z - 0.11);
+    for (const piece of rt.pieces.children.filter(
+      (piece) => !nextKeys.has(piece.name),
+    )) {
+      if (!nextKeys.has(piece.name)) {
+        rt.pieces.remove(piece);
+        dispose(piece);
+      }
+    }
     const seen = new Set<string>();
     for (const a of actions) {
       if (!('id' in a)) continue;
@@ -329,6 +345,21 @@ export default function Board({
       rt.targets.add(m);
     }
   }, [game, actions, lite]);
+  useEffect(() => {
+    const rt = runtime.current;
+    if (rt) updateReducedMotion(rt, reducedMotion);
+  }, [reducedMotion, terrain, lite]);
+  useEffect(() => {
+    const rt = runtime.current;
+    if (!rt || !host.current) return;
+    return mountSceneFeedback(
+      rt.scene,
+      rt.pieces,
+      rt.camera,
+      host.current,
+      feedbackPolicy(feedbackLevel, reducedMotion, lite),
+    );
+  }, [terrain, lite, feedbackLevel, reducedMotion]);
   useEffect(() => {
     const rt = runtime.current;
     if (rt) {

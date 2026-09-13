@@ -3,7 +3,11 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
 import { useGameTools } from '@/lib/use-game-tools';
-import { gameAudio, actionCue } from '@/lib/audio';
+import {
+  useFeedbackPreferences,
+  useGameFeedback,
+} from '@/lib/use-game-feedback';
+import { gameAudio } from '@/lib/audio';
 import { useOnlineRoom } from '@/lib/use-online-room';
 import { botPresentation } from '@/packages/rules/bot-presentation';
 import {
@@ -73,6 +77,12 @@ const icons = [TreePine, BrickWall, Cloud, Wheat, Mountain],
   storageKey = 'conquist-local-v1';
 export default function Home() {
   const online = useOnlineRoom();
+  const feedbackRoot = useRef<HTMLElement>(null);
+  const feedback = useFeedbackPreferences();
+  const [localFeedback, setLocalFeedback] = useState<{
+    revision: number;
+    move: Action['type'] | null;
+  }>({ revision: 0, move: null });
   const appearance = useLocalCosmetics();
   const loadout = online.session
     ? (online.view?.cosmetics?.[online.view.seat] ?? DEFAULT_LOADOUT)
@@ -103,27 +113,6 @@ export default function Home() {
   const game = online.view?.game ?? localGame;
   const playing = online.session ? !!online.view?.game : localPlaying;
   const network = !!online.session;
-  const heard = useRef<{ code: string; revision: number } | null>(null);
-  useEffect(() => {
-    const next = online.view;
-    if (!next) {
-      heard.current = null;
-      return;
-    }
-    if (
-      heard.current?.code === next.code &&
-      heard.current.revision < next.revision &&
-      next.lastMove &&
-      audio
-    ) {
-      gameAudio.play(
-        next.game?.phase === 'over'
-          ? 'win'
-          : actionCue({ type: next.lastMove }),
-      );
-    }
-    heard.current = { code: next.code, revision: next.revision };
-  }, [online.view, audio]);
   useEffect(() => {
     // Read the browser invite only after hydration.
     if (new URLSearchParams(window.location.search).has('room'))
@@ -202,6 +191,19 @@ export default function Home() {
     local = !network && game.players.every((p) => !p.bot),
     viewer = network ? (online.view?.seat ?? 0) : local ? actor : 0,
     player = game.players[viewer];
+  useGameFeedback(
+    feedbackRoot,
+    {
+      game,
+      playing,
+      viewer,
+      match: network ? online.session!.code : `local:${game.seed}`,
+      revision: network ? (online.view?.revision ?? 0) : localFeedback.revision,
+      move: network ? (online.view?.lastMove ?? null) : localFeedback.move,
+    },
+    feedback.level,
+    feedback.reduced,
+  );
   const act = useCallback(
     (a: Action) => {
       if (network) {
@@ -214,6 +216,10 @@ export default function Home() {
       try {
         const next = apply(game, a);
         setGame(next);
+        setLocalFeedback((previous) => ({
+          revision: previous.revision + 1,
+          move: a.type,
+        }));
         const nextActor =
           next.phase === 'discard'
             ? next.discard.findIndex((n) => n > 0)
@@ -222,12 +228,11 @@ export default function Home() {
           setHandoff(true);
         setBuild(null);
         setNotice('');
-        if (audio) gameAudio.play(next.phase === 'over' ? 'win' : actionCue(a));
       } catch (e) {
         setNotice(e instanceof Error ? e.message : 'Unable to make that move.');
       }
     },
-    [audio, game, local, actor, network, bot, sendOnline],
+    [game, local, actor, network, bot, sendOnline],
   );
   const botMove = useMemo(
     () =>
@@ -279,6 +284,7 @@ export default function Home() {
     online.leave();
     const n = Number(seed);
     setGame(createGame(Number.isFinite(n) ? n >>> 0 : 42817, hotseat));
+    setLocalFeedback({ revision: 0, move: null });
     setPlaying(true);
     setBuild(null);
     setHandoff(false);
@@ -372,6 +378,8 @@ export default function Home() {
   return (
     <main
       className={`conquist${playing ? ' is-playing' : ''}`}
+      ref={feedbackRoot}
+      data-feedback-level={feedback.level}
       data-map-skin={loadout.map}
     >
       {(roomMenu || (network && !playing)) && (
@@ -399,6 +407,12 @@ export default function Home() {
           send={online.send}
         />
       )}
+      <output
+        className="feedback-status"
+        data-feedback-status
+        aria-live="polite"
+        aria-atomic="true"
+      />
       <header className="topbar">
         <button
           className="brand"
@@ -528,6 +542,7 @@ export default function Home() {
               {game.players.map((p, i) => (
                 <div
                   className={`player-card ${game.active === i ? 'active' : ''}`}
+                  data-player={i}
                   data-profile-skin={
                     network
                       ? online.view?.cosmetics?.[i]?.profile
@@ -643,6 +658,8 @@ export default function Home() {
               <Board
                 game={game}
                 mapSkin={loadout.map}
+                feedbackLevel={feedback.level}
+                reducedMotion={feedback.reduced}
                 actions={selectable}
                 onAction={onBoardAction}
                 view={view}
@@ -752,6 +769,7 @@ export default function Home() {
                   <button
                     key={r}
                     className={`resource-card res-${i}`}
+                    data-resource={i}
                     onClick={() => {
                       if (
                         game.phase === 'discard' &&
@@ -774,6 +792,11 @@ export default function Home() {
                     >
                       <Icon size={26} />
                     </span>
+                    <span
+                      className="resource-delta"
+                      data-resource-delta
+                      aria-hidden="true"
+                    />
                     <strong>{handoff ? '?' : player.resources[i]}</strong>
                     <span>{r}</span>
                   </button>
@@ -1014,6 +1037,26 @@ export default function Home() {
                   else appearance.equip(slot, id);
                 }}
               />
+              <label className="field">
+                Game effects
+                <select
+                  value={feedback.level}
+                  onChange={(event) =>
+                    feedback.change(
+                      event.target.value as 'full' | 'subtle' | 'off',
+                    )
+                  }
+                >
+                  <option value="full">Full</option>
+                  <option value="subtle">Subtle</option>
+                  <option value="off">Off</option>
+                </select>
+                <small>
+                  {feedback.reduced
+                    ? 'Reduced motion is enabled on your device. Movement effects are paused.'
+                    : 'Controls resource flights, piece motion, and visual highlights. Sound has its own setting.'}
+                </small>
+              </label>
               <label className="field">
                 Island seed
                 <input

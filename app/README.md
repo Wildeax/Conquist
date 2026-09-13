@@ -57,3 +57,11 @@ Room tests cover four HTTP clients, racing duplicate moves, seat authorization, 
 The [Three.js renderer](https://threejs.org/docs/pages/WebGLRenderer.html) and [OrbitControls](https://threejs.org/docs/pages/OrbitControls.html) documentation informed the rendering setup.
 
 MIT. See the repository's root license.
+
+## Game feedback
+
+Settings → Game effects offers Full, Subtle and Off. The choice is saved on this device; audio has its own controls. Operating-system reduced motion disables travel, piece motion and dice motion. Lite graphics skips resource flights.
+
+Feedback is client-side presentation. `packages/rules/feedback.ts` derives resource gains, losses, construction and turn cues from adjacent acknowledged snapshots without changing game state. Repeated polls, initial loads and skipped revisions do not replay effects. Resource effects use only the viewer's hand; pass-and-play handoffs never compare different players' cards.
+
+`lib/use-game-feedback.ts` coordinates scoped GSAP timelines and synthesized audio. `lib/scene/feedback.ts` handles piece settling, construction rings and resource packets projected from producing tiles. Flights are capped at six packets per event. Timelines and temporary objects are removed on the next move, preference changes, tab visibility changes or scene teardown. Existing pieces retain their meshes while legal targets change, so selecting another action does not restart their entrance animation.

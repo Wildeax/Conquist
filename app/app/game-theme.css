@@ -968,3 +968,82 @@
   box-shadow: inset 0 0 0 2px #9d773644;
   background-image: linear-gradient(120deg, #9e74301a, transparent);
 }
+/* Feedback overlays never intercept board or hand input. */
+.resource-flight {
+  position: fixed;
+  z-index: 35;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  border: 1px solid #d5b16f;
+  border-radius: 8px;
+  padding: 6px 9px;
+  background: #183735;
+  color: #fff0cc;
+  font:
+    600 12px system-ui,
+    sans-serif;
+  box-shadow: 0 4px 18px #0006;
+  white-space: nowrap;
+}
+.is-playing .resource-card > .resource-delta {
+  position: absolute;
+  z-index: 4;
+  top: -12px;
+  right: -5px;
+  display: block;
+  min-width: 24px;
+  padding: 3px 5px;
+  border-radius: 7px;
+  color: #f4fff1;
+  background: #245b46;
+  border: 1px solid #8abb88;
+  font:
+    700 13px system-ui,
+    sans-serif;
+  pointer-events: none;
+  text-shadow: none;
+}
+.is-playing .resource-card > .resource-delta:empty {
+  display: none;
+}
+.is-playing .resource-card > .resource-delta[data-direction='loss'] {
+  background: #644337;
+  border-color: #c5946d;
+  color: #fff2df;
+}
+.feedback-status {
+  position: fixed;
+  z-index: 35;
+  top: 82px;
+  left: 50%;
+  translate: -50% 0;
+  max-width: min(440px, calc(100vw - 32px));
+  padding: 10px 16px;
+  border: 1px solid #ba9a5f;
+  border-radius: 10px;
+  background: #142e30ed;
+  color: #fff0cd;
+  box-shadow: 0 6px 24px #0005;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.feedback-status:empty {
+  display: none;
+}
+.conquist[data-feedback-level='off'] .die {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .resource-flight {
+    display: none;
+  }
+}
+@media (max-width: 540px) {
+  .feedback-status {
+    top: 68px;
+    font-size: 12px;
+    padding: 8px 12px;
+  }
+}
