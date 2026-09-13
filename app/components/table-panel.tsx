@@ -6,6 +6,71 @@ import type { Game } from '@/packages/rules/game';
 import { COLORS } from '@/packages/rules/game';
 import { TradePost } from './trade-post';
 
+const PIPS = [
+  [],
+  [4],
+  [0, 8],
+  [0, 4, 8],
+  [0, 2, 6, 8],
+  [0, 2, 4, 6, 8],
+  [0, 2, 3, 5, 6, 8],
+];
+
+function AnimatedDie({
+  value,
+  rollKey,
+  index,
+}: {
+  value: number;
+  rollKey: string;
+  index: number;
+}) {
+  const previous = useRef(rollKey);
+  const [face, setFace] = useState(value);
+  const [rolling, setRolling] = useState(false);
+
+  useEffect(() => {
+    if (!rollKey || previous.current === rollKey) {
+      previous.current = rollKey;
+      return;
+    }
+    previous.current = rollKey;
+    let frame = 0;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      frame = requestAnimationFrame(() => setFace(value));
+      return () => cancelAnimationFrame(frame);
+    }
+    let step = 0;
+    frame = requestAnimationFrame(() => setRolling(true));
+    const interval = window.setInterval(() => {
+      step++;
+      setFace(((step * 5 + index * 2 + value) % 6) + 1);
+    }, 70);
+    const finish = window.setTimeout(() => {
+      clearInterval(interval);
+      setFace(value);
+      setRolling(false);
+    }, 700);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearInterval(interval);
+      clearTimeout(finish);
+    };
+  }, [index, rollKey, value]);
+
+  return (
+    <span className={`die ${rolling ? 'dice-rolling' : ''}`}>
+      {face ? (
+        Array.from({ length: 9 }, (_, pip) => (
+          <i key={pip} className={PIPS[face].includes(pip) ? 'pip' : ''} />
+        ))
+      ) : (
+        <span className="die-unrolled">?</span>
+      )}
+    </span>
+  );
+}
+
 export function TablePanel({
   online,
   game,
@@ -85,6 +150,10 @@ export function TablePanel({
     }
   }
   const result = online.view?.tradeResult;
+  const rollKey =
+    game.phase !== 'roll' && game.dice.length === 2
+      ? `${game.turn}:${game.dice.join(':')}`
+      : '';
   return (
     <section className="table-panel" aria-label="Table conversation and trades">
       <div
@@ -96,30 +165,7 @@ export function TablePanel({
         }
       >
         {(game.dice.length ? game.dice : [0, 0]).map((n, i) => (
-          <span className="die" key={`${game.turn}-${n}-${i}`}>
-            {n ? (
-              Array.from({ length: 9 }, (_, pip) => (
-                <i
-                  key={pip}
-                  className={
-                    [
-                      [],
-                      [4],
-                      [0, 8],
-                      [0, 4, 8],
-                      [0, 2, 6, 8],
-                      [0, 2, 4, 6, 8],
-                      [0, 2, 3, 5, 6, 8],
-                    ][n].includes(pip)
-                      ? 'pip'
-                      : ''
-                  }
-                />
-              ))
-            ) : (
-              <span>?</span>
-            )}
-          </span>
+          <AnimatedDie value={n} rollKey={rollKey} index={i} key={i} />
         ))}
         <span>
           {game.dice.length
