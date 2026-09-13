@@ -15,7 +15,7 @@ Both branches require pull requests, passing `validate` checks and resolved conv
 2. Test the staging game, then open a PR from `develop` into `main`.
 3. Merge after checks pass. The same workflow builds and deploys production.
 
-Use **Actions → Deploy Conquist → Run workflow** on `develop` or `main` to redeploy that branch. Deployments are serialized per environment and are not cancelled halfway through a release. PR code runs on GitHub-hosted runners without deployment credentials.
+Use **Actions → Deploy Conquist → Run workflow** on `develop` or `main` to deploy that branch. To reuse an existing release exactly, enter its full SHA in `rollback_sha`. A SHA cannot overwrite a previously loaded image with different contents; changed dependencies or build output require a new commit. Deployments are serialized per environment and are not cancelled halfway through a release. PR code runs on GitHub-hosted runners without deployment credentials.
 
 The workflow typechecks, lints and tests the app, exports the client, validates deployment scripts, and builds two images tagged with the full commit SHA. The compressed images and checksum remain in Actions artifacts for 14 days. A dedicated SSH key streams them to the VPS with strict host-key checking. The receiver validates that the archive contains only the two expected Conquist tags before loading it.
 

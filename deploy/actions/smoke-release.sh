@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Runs only on the disposable GitHub build runner, before deployment secrets exist.
 set -euo pipefail
+[[ "${GITHUB_ACTIONS:-}" == true && "${RUNNER_OS:-}" == Linux ]] || { echo 'This test requires a disposable GitHub Linux runner' >&2; exit 2; }
 release=$1
 [[ "$release" =~ ^[a-f0-9]{40}$ ]] || exit 2
 sudo install -d /usr/local/share/conquist
