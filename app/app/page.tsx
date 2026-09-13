@@ -40,7 +40,6 @@ import {
   Dices,
   RotateCcw,
   Eye,
-  ChevronDown,
   Anchor,
 } from 'lucide-react';
 import {
@@ -414,12 +413,6 @@ export default function Home() {
           {online.error}
         </output>
       )}
-      <output
-        className="feedback-status"
-        data-feedback-status
-        aria-live="polite"
-        aria-atomic="true"
-      />
       <header className="topbar">
         <button
           className="brand"
@@ -539,144 +532,8 @@ export default function Home() {
       ) : (
         <>
           <div className="game-layout">
-            <section className="table-surface" aria-label="Game board">
-              <div className="board-topline">
-                <div>
-                  <span className="eyebrow">THE EMBER ISLES</span>
-                  <p>
-                    Turn {game.turn} <span>•</span> Seed {game.seed}
-                  </p>
-                </div>
-                <div className="camera-actions">
-                  <button
-                    className="icon-button"
-                    aria-label="Change camera view"
-                    onClick={() => setView(view + 1)}
-                  >
-                    <Eye size={19} />
-                  </button>
-                  <button
-                    className="icon-button"
-                    aria-label="Reset camera"
-                    onClick={() => setView(view + 2)}
-                  >
-                    <RotateCcw size={17} />
-                  </button>
-                </div>
-              </div>
-              <Board
-                game={game}
-                mapSkin={loadout.map}
-                feedbackLevel={feedback.level}
-                reducedMotion={feedback.reduced}
-                actions={selectable}
-                onAction={onBoardAction}
-                onPreview={setCandidate}
-                preview={preview}
-                view={view}
-                lite={lite}
-              />
-              <div className="board-hint">
-                <span className="hint-dot" />
-                {build
-                  ? 'Choose a highlighted location. Escape cancels.'
-                  : 'Drag to orbit · Scroll to zoom'}
-              </div>
-              <div className="turn-prompt" aria-live="polite">
-                <span style={{ background: COLORS[actor] }} />
-                {message}
-              </div>
-              {!bot &&
-                !handoff &&
-                (preview ||
-                  build ||
-                  game.freeRoads > 0 ||
-                  game.phase.startsWith('setup') ||
-                  game.phase === 'raider') && (
-                  <section
-                    className="placement-panel"
-                    aria-label="Placement controls"
-                  >
-                    <strong>
-                      {preview
-                        ? preview.type === 'raider'
-                          ? 'Choose whom to steal from'
-                          : `Confirm ${preview.type} placement`
-                        : game.phase === 'setup-road' || game.freeRoads
-                          ? 'Place a road beside your new settlement'
-                          : game.phase === 'setup-settlement'
-                            ? `Place your ${game.setup < 4 ? 'first' : 'second'} settlement`
-                            : build
-                              ? `Place your ${build}`
-                              : 'Move the Raider to block a resource tile'}
-                    </strong>
-                    <p>
-                      {preview
-                        ? 'Choose an action below, or select a different location.'
-                        : 'Glowing locations are legal. Hover to preview; tap to preview on touch screens.'}
-                    </p>
-                    {preview?.type === 'raider' ? (
-                      <div className="victim-choices">
-                        {all
-                          .filter(
-                            (a) => a.type === 'raider' && a.id === preview.id,
-                          )
-                          .map(
-                            (a, i) =>
-                              a.type === 'raider' && (
-                                <button
-                                  key={i}
-                                  className="primary"
-                                  onClick={() => {
-                                    setCandidate(null);
-                                    act(a);
-                                  }}
-                                >
-                                  {a.victim === undefined ? (
-                                    'Move here · no cards to steal'
-                                  ) : (
-                                    <>
-                                      <span
-                                        className={`avatar portrait portrait-${a.victim}`}
-                                      />
-                                      Steal from {game.players[a.victim].name}
-                                    </>
-                                  )}
-                                </button>
-                              ),
-                          )}
-                      </div>
-                    ) : (
-                      preview && (
-                        <button
-                          className="primary"
-                          onClick={() => {
-                            setCandidate(null);
-                            act(preview);
-                          }}
-                        >
-                          Confirm {preview.type}
-                        </button>
-                      )
-                    )}
-                    {(build || preview) && (
-                      <button
-                        className="secondary"
-                        onClick={() => {
-                          setBuild(null);
-                          setCandidate(null);
-                        }}
-                      >
-                        Cancel selection · Esc
-                      </button>
-                    )}
-                  </section>
-                )}
-            </section>
-            <aside
-              className="table-sidebar"
-              aria-label="Players and table panels"
-            >
+            <aside className="player-sidebar" aria-label="Players">
+              {' '}
               <aside className="players-panel">
                 <div className="panel-heading">
                   <span>THE TABLE</span>
@@ -787,6 +644,55 @@ export default function Home() {
                   <BookOpen size={15} /> Rules & build costs
                 </button>
               </aside>
+            </aside>
+            <section className="table-surface" aria-label="Game board">
+              <div className="board-topline">
+                <div>
+                  <span className="eyebrow">THE EMBER ISLES</span>
+                  <p>
+                    Turn {game.turn} <span>•</span> Seed {game.seed}
+                  </p>
+                </div>
+                <div className="camera-actions">
+                  <button
+                    className="icon-button"
+                    aria-label="Change camera view"
+                    onClick={() => setView(view + 1)}
+                  >
+                    <Eye size={19} />
+                  </button>
+                  <button
+                    className="icon-button"
+                    aria-label="Reset camera"
+                    onClick={() => setView(view + 2)}
+                  >
+                    <RotateCcw size={17} />
+                  </button>
+                </div>
+              </div>
+              <Board
+                game={game}
+                mapSkin={loadout.map}
+                feedbackLevel={feedback.level}
+                reducedMotion={feedback.reduced}
+                actions={selectable}
+                onAction={onBoardAction}
+                onPreview={setCandidate}
+                preview={preview}
+                view={view}
+                lite={lite}
+              />
+              <div className="board-hint">
+                <span className="hint-dot" />
+                {build
+                  ? 'Choose a highlighted location. Escape cancels.'
+                  : 'Drag to orbit · Scroll to zoom'}
+              </div>
+            </section>
+            <aside
+              className="table-sidebar"
+              aria-label="Trades, chat and activity"
+            >
               <TablePanel
                 key={online.session?.code ?? 'local'}
                 online={online}
@@ -838,6 +744,81 @@ export default function Home() {
                 }
               />
             </aside>
+          </div>
+          <div className="action-strip">
+            <output
+              className="feedback-status"
+              data-feedback-status
+              aria-live="polite"
+              aria-atomic="true"
+            />
+
+            <output className="action-message">{message}</output>
+            {!bot && !handoff && preview && (
+              <section
+                className="placement-panel"
+                aria-label="Placement controls"
+              >
+                {preview?.type === 'raider' ? (
+                  <div className="victim-choices">
+                    {all
+                      .filter((a) => a.type === 'raider' && a.id === preview.id)
+                      .map(
+                        (a, i) =>
+                          a.type === 'raider' && (
+                            <button
+                              key={i}
+                              className="primary"
+                              onClick={() => {
+                                setCandidate(null);
+                                act(a);
+                              }}
+                            >
+                              {a.victim === undefined ? (
+                                'Move here · no cards to steal'
+                              ) : (
+                                <>
+                                  <span
+                                    className={`avatar portrait portrait-${a.victim}`}
+                                  />
+                                  Steal from {game.players[a.victim].name}
+                                </>
+                              )}
+                            </button>
+                          ),
+                      )}
+                  </div>
+                ) : (
+                  preview && (
+                    <button
+                      className="primary"
+                      onClick={() => {
+                        setCandidate(null);
+                        act(preview);
+                      }}
+                    >
+                      Confirm {preview.type}
+                    </button>
+                  )
+                )}
+                {(build || preview) && (
+                  <button
+                    className="secondary"
+                    onClick={() => {
+                      setBuild(null);
+                      setCandidate(null);
+                    }}
+                  >
+                    Cancel selection · Esc
+                  </button>
+                )}
+              </section>
+            )}
+            {!bot && !handoff && build && !preview && (
+              <button className="cancel-build" onClick={() => setBuild(null)}>
+                Cancel · Esc
+              </button>
+            )}
           </div>
           <section className="hand-dock" aria-label="Resources and actions">
             <div className="hand-label">
@@ -902,7 +883,7 @@ export default function Home() {
                   title={COSTS[key]
                     .flatMap((n, i) => (n ? [`${n} ${RESOURCES[i]}`] : []))
                     .join(' + ')}
-                  className={`build-button ${build === key ? 'selected' : ''}`}
+                  className={`build-button ${build === key ? 'selected' : ''} ${!bot && !handoff && (game.phase === `setup-${key}` || (key === 'road' && game.freeRoads)) ? 'action-required' : ''}`}
                   key={key}
                   disabled={bot || handoff || !all.some((a) => a.type === key)}
                   onClick={() => {
@@ -913,21 +894,30 @@ export default function Home() {
                   <Icon size={21} />
                   <span>{name}</span>
                   <span className="build-cost" aria-label={`${name} cost`}>
-                    {COSTS[key].map((n, i) => {
-                      const ResourceIcon = icons[i];
-                      return (
-                        n > 0 && (
-                          <span
-                            key={i}
-                            className={player.resources[i] < n ? 'missing' : ''}
-                            title={`${n} ${RESOURCES[i]}`}
-                          >
-                            <ResourceIcon size={12} />
-                            {n}
-                          </span>
-                        )
-                      );
-                    })}
+                    {game.phase === `setup-${key}` ||
+                    (key === 'road' && game.freeRoads) ? (
+                      <span>Free</span>
+                    ) : (
+                      <>
+                        {COSTS[key].map((n, i) => {
+                          const ResourceIcon = icons[i];
+                          return (
+                            n > 0 && (
+                              <span
+                                key={i}
+                                className={
+                                  player.resources[i] < n ? 'missing' : ''
+                                }
+                                title={`${n} ${RESOURCES[i]}`}
+                              >
+                                <ResourceIcon size={12} />
+                                {n}
+                              </span>
+                            )
+                          );
+                        })}
+                      </>
+                    )}
                   </span>
                   <small>
                     {game.phase.startsWith('setup')
@@ -1012,24 +1002,6 @@ export default function Home() {
                 ×
               </button>
             </output>
-          )}
-          {!bot && !handoff && selectable.length > 0 && (
-            <details className="legal-locations">
-              <summary>
-                Legal locations <span>{selectable.length}</span>
-                <ChevronDown size={14} />
-              </summary>
-              <div>
-                {selectable.map((a, i) => (
-                  <button key={i} onClick={() => onBoardAction(a)}>
-                    {a.type} {'id' in a ? a.id + 1 : ''}
-                    {a.type === 'raider' && a.victim !== undefined
-                      ? ` · take from ${game.players[a.victim].name}`
-                      : ''}
-                  </button>
-                ))}
-              </div>
-            </details>
           )}
           <Dialog open={handoff} onOpenChange={() => {}}>
             <DialogContent showCloseButton={false} className="game-dialog">

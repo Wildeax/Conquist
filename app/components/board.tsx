@@ -130,7 +130,7 @@ export default function Board({
     renderer.toneMappingExposure = 1.05;
     renderer.domElement.setAttribute(
       'aria-label',
-      '3D Ember Isles. Drag to orbit, scroll to zoom. Legal locations below provide keyboard controls.',
+      '3D Ember Isles. Drag to orbit, scroll to zoom. Select a glowing location to build.',
     );
     el.appendChild(renderer.domElement);
     const scene = new T.Scene();
@@ -265,12 +265,17 @@ export default function Board({
     renderer.domElement.addEventListener('pointerdown', down);
     renderer.domElement.addEventListener('pointerup', up);
     renderer.domElement.addEventListener('pointermove', move);
+    let fitted = false;
     const resize = () => {
       if (!el.clientWidth || !el.clientHeight) return;
       renderer.setSize(el.clientWidth, el.clientHeight);
       camera.aspect = el.clientWidth / el.clientHeight;
       camera.updateProjectionMatrix();
-      fitBoard(camera, controls);
+      // Fit once on mount. Layout changes must not overwrite the player's zoom.
+      if (!fitted) {
+        fitBoard(camera, controls);
+        fitted = true;
+      }
     };
     const observer = new ResizeObserver(resize);
     observer.observe(el);
@@ -436,7 +441,8 @@ export default function Board({
     <div className="board-canvas" ref={host}>
       {error && (
         <div className="webgl-error">
-          3D is unavailable. You can still play using Legal locations below.
+          3D is unavailable. Enable hardware acceleration or try another
+          browser.
         </div>
       )}
     </div>
