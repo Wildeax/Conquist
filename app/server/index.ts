@@ -17,7 +17,11 @@ export function createRoomServer(directory: string) {
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
       if (req.method === 'GET' && url.pathname === '/api/health')
-        return send(200, { ok: true });
+        return send(200, {
+          ok: true,
+          release: process.env.CONQUIST_RELEASE ?? 'local',
+          environment: process.env.CONQUIST_ENVIRONMENT ?? 'local',
+        });
       if (
         req.headers.origin &&
         new URL(req.headers.origin).host !== req.headers.host

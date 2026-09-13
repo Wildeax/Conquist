@@ -12,3 +12,4 @@ coverage/
 out/
 *.log
 .rooms/
+__pycache__/
