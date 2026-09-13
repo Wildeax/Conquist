@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState, useMemo } from 'react';
 import * as T from 'three';
+import { gsap } from 'gsap';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
   COLORS,
@@ -130,7 +131,7 @@ export default function Board({
     renderer.toneMappingExposure = 1.05;
     renderer.domElement.setAttribute(
       'aria-label',
-      '3D Ember Isles. Drag to orbit, scroll to zoom. Select a glowing location to build.',
+      '3D Ember Isles board. Select a glowing location to build.',
     );
     el.appendChild(renderer.domElement);
     const scene = new T.Scene();
@@ -290,12 +291,16 @@ export default function Board({
       environment.update(elapsed);
       for (const m of targets.children) {
         const mat = (m as T.Mesh).material as T.MeshStandardMaterial;
-        mat.emissiveIntensity =
-          m === hover
-            ? 1.1
-            : rt.reduced
-              ? 0.32
-              : 0.28 + Math.sin(elapsed * 2.8) * 0.12;
+        const pulse = 0.5 + Math.sin(elapsed * 4.2) * 0.5;
+        const hovered = m === hover;
+        mat.emissiveIntensity = hovered
+          ? 2.2
+          : rt.reduced
+            ? 1
+            : 0.65 + pulse * 1.25;
+        mat.opacity = hovered ? 1 : rt.reduced ? 0.92 : 0.68 + pulse * 0.28;
+        const scale = hovered ? 1.22 : rt.reduced ? 1.1 : 0.9 + pulse * 0.32;
+        m.scale.setScalar(scale);
       }
       controls.update();
       renderer.render(scene, camera);
@@ -408,6 +413,8 @@ export default function Board({
       mat.emissive.set('#e7bc69');
       mat.transparent = true;
       mat.opacity = 0.75;
+      mat.depthTest = false;
+      m.renderOrder = 20;
       m.userData.action = structuredClone(a);
       rt.targets.add(m);
     }
@@ -432,11 +439,47 @@ export default function Board({
   }, [terrain, lite, feedbackLevel, reducedMotion]);
   useEffect(() => {
     const rt = runtime.current;
-    if (rt) {
-      rt.camera.position.set(0, view % 2 ? 14 : 9.7, view % 2 ? 1 : 12);
-      fitBoard(rt.camera, rt.controls);
+    if (!rt) return;
+    const destination = new T.Vector3(
+      0,
+      view % 2 ? 14 : 9.7,
+      view % 2 ? 1 : 12,
+    );
+    const halfFov = Math.atan(
+      Math.tan(T.MathUtils.degToRad(rt.camera.fov / 2)) *
+        Math.min(rt.camera.aspect, 1),
+    );
+    const distance = 5.65 / Math.sin(halfFov);
+    destination
+      .sub(rt.controls.target)
+      .normalize()
+      .multiplyScalar(distance)
+      .add(rt.controls.target);
+    rt.controls.minDistance = distance * 0.5;
+    rt.controls.maxDistance = distance * 1.6;
+    if (reducedMotion) {
+      rt.camera.position.copy(destination);
+      rt.controls.update();
+      return;
     }
-  }, [view]);
+    rt.controls.enabled = false;
+    const tween = gsap.to(rt.camera.position, {
+      x: destination.x,
+      y: destination.y,
+      z: destination.z,
+      duration: 0.85,
+      ease: 'power2.inOut',
+      overwrite: true,
+      onUpdate: () => rt.controls.update(),
+      onComplete: () => {
+        rt.controls.enabled = true;
+      },
+    });
+    return () => {
+      tween.kill();
+      rt.controls.enabled = true;
+    };
+  }, [view, reducedMotion]);
   return (
     <div className="board-canvas" ref={host}>
       {error && (

@@ -15,7 +15,7 @@ import {
   useLocalCosmetics,
 } from '@/components/cosmetics-picker';
 import { DEFAULT_LOADOUT } from '@/lib/cosmetics';
-import { PlayerActionBubble } from '@/components/player-action-bubble';
+import { PlayerActionIndicator } from '@/components/player-action-indicator';
 import { TablePanel } from '@/components/table-panel';
 import { PublicTradeComposer } from '@/components/resource-bundle';
 import { OnlineLobby } from '@/components/online-lobby';
@@ -509,7 +509,7 @@ export default function Home() {
                     key={i}
                     style={{ '--player': COLORS[i] } as React.CSSProperties}
                   >
-                    <PlayerActionBubble entries={game.log} name={p.name} />
+                    <PlayerActionIndicator entries={game.log} name={p.name} />
                     <span
                       className="player-gain"
                       data-player-gain
@@ -534,7 +534,8 @@ export default function Home() {
                                 : 'Your expedition'}
                         </small>
                       </div>
-                      <strong className="points">
+                      <strong className="points" title="Victory points">
+                        <Trophy size={12} aria-hidden="true" />
                         {network
                           ? online.view?.points[i]
                           : score(
@@ -542,7 +543,6 @@ export default function Home() {
                               i,
                               i !== viewer && game.phase !== 'over',
                             )}
-                        <small>VP</small>
                       </strong>
                     </div>
                     <div className="player-stats">
@@ -637,12 +637,6 @@ export default function Home() {
                 view={view}
                 lite={lite}
               />
-              <div className="board-hint">
-                <span className="hint-dot" />
-                {build
-                  ? 'Choose a highlighted location. Escape cancels.'
-                  : 'Drag to orbit · Scroll to zoom'}
-              </div>
             </section>
             <aside
               className="table-sidebar"
@@ -838,7 +832,7 @@ export default function Home() {
                   title={COSTS[key]
                     .flatMap((n, i) => (n ? [`${n} ${RESOURCES[i]}`] : []))
                     .join(' + ')}
-                  className={`build-button ${build === key ? 'selected' : ''} ${!bot && !handoff && (game.phase === `setup-${key}` || (key === 'road' && game.freeRoads)) ? 'action-required' : ''}`}
+                  className={`build-button ${build === key ? 'selected' : ''}`}
                   key={key}
                   disabled={bot || handoff || !all.some((a) => a.type === key)}
                   onClick={() => {
