@@ -9,7 +9,7 @@ def verify(base, release, environment):
     for attempt in range(20):
         try:
             def read(path):
-                request = urllib.request.Request(base.rstrip("/") + path, headers={"Cache-Control": "no-cache"})
+                request = urllib.request.Request(base.rstrip("/") + path, headers={"Cache-Control": "no-cache", "User-Agent": "Conquist-Deployment-Check/1.0"})
                 with urllib.request.urlopen(request, timeout=10) as response:
                     return json.load(response)
             page = read("/release.json?release=" + release)
