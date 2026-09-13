@@ -18,6 +18,8 @@ type Props = {
   game: Game;
   actions: Action[];
   onAction: (a: Action) => void;
+  onPreview?: (a: Action) => void;
+  preview?: Action | null;
   view: number;
   lite: boolean;
   mapSkin?: string;
@@ -31,6 +33,7 @@ type Runtime = {
   camera: T.PerspectiveCamera;
   controls: OrbitControls;
   reduced: boolean;
+  showGhost: (action: Action | null) => void;
 };
 function updateReducedMotion(runtime: Runtime, reduced: boolean) {
   runtime.reduced = reduced;
@@ -83,6 +86,8 @@ export default function Board({
   game,
   actions,
   onAction,
+  onPreview,
+  preview = null,
   view,
   lite,
   mapSkin = 'map.ember',
@@ -95,11 +100,11 @@ export default function Board({
     ),
     host = useRef<HTMLDivElement>(null),
     runtime = useRef<Runtime | null>(null),
-    latest = useRef({ actions, onAction });
+    latest = useRef({ actions, onAction, onPreview, preview });
   const [error, setError] = useState(false);
   useEffect(() => {
-    latest.current = { actions, onAction };
-  }, [actions, onAction]);
+    latest.current = { actions, onAction, onPreview, preview };
+  }, [actions, onAction, onPreview, preview]);
   useEffect(() => {
     const el = host.current!;
     let renderer: T.WebGLRenderer;
@@ -170,8 +175,53 @@ export default function Board({
       camera,
       controls,
       reduced,
+      showGhost: () => {},
     };
     runtime.current = rt;
+    let ghost: T.Group | null = null,
+      ghostKey = '';
+    const showGhost = (action: Action | null) => {
+      const key = action && 'id' in action ? `${action.type}-${action.id}` : '';
+      if (key === ghostKey) return;
+      if (ghost) {
+        scene.remove(ghost);
+        dispose(ghost);
+        ghost = null;
+      }
+      ghostKey = key;
+      if (
+        !action ||
+        !('id' in action) ||
+        !['road', 'settlement', 'city', 'raider'].includes(action.type)
+      )
+        return;
+      const target = targets.children.find(
+        (m) =>
+          m.userData.action.type === action.type &&
+          m.userData.action.id === action.id,
+      );
+      if (!target) return;
+      ghost = createModel(
+        action.type as 'road' | 'settlement' | 'city' | 'raider',
+        '#ffe6a0',
+      );
+      ghost.position.copy(target.position);
+      ghost.position.y = 0.23;
+      if (action.type === 'road') ghost.rotation.y = target.rotation.y;
+      ghost.traverse((child) => {
+        if (child instanceof T.Mesh) {
+          for (const material of Array.isArray(child.material)
+            ? child.material
+            : [child.material]) {
+            material.transparent = true;
+            material.opacity = 0.55;
+            material.depthWrite = false;
+          }
+        }
+      });
+      scene.add(ghost);
+    };
+    rt.showGhost = showGhost;
     const ray = new T.Raycaster(),
       pointer = new T.Vector2();
     let startX = 0,
@@ -195,12 +245,23 @@ export default function Board({
     const up = (e: PointerEvent) => {
       if (Math.hypot(e.clientX - startX, e.clientY - startY) > 6) return;
       const hit = pick(e);
-      if (hit) latest.current.onAction(hit.userData.action);
+      if (hit) {
+        if (e.pointerType === 'touch' && latest.current.onPreview)
+          latest.current.onPreview(hit.userData.action);
+        else latest.current.onAction(hit.userData.action);
+      }
     };
     const move = (e: PointerEvent) => {
       hover = pick(e) ?? null;
       renderer.domElement.style.cursor = hover ? 'pointer' : 'grab';
+      if (e.pointerType !== 'touch')
+        showGhost(hover?.userData.action ?? latest.current.preview);
     };
+    const leave = () => {
+      hover = null;
+      showGhost(latest.current.preview);
+    };
+    renderer.domElement.addEventListener('pointerleave', leave);
     renderer.domElement.addEventListener('pointerdown', down);
     renderer.domElement.addEventListener('pointerup', up);
     renderer.domElement.addEventListener('pointermove', move);
@@ -255,6 +316,7 @@ export default function Board({
     const rt = runtime.current;
     if (!rt) return;
     const snapshot = structuredClone(game);
+    rt.showGhost(null);
     dispose(rt.targets);
     rt.targets.clear();
     const nextKeys = new Set<string>();
@@ -315,7 +377,7 @@ export default function Board({
           v = game.vertices[e.a],
           w = game.vertices[e.b];
         m = part(
-          new T.BoxGeometry(0.17, 0.06, 0.73),
+          new T.BoxGeometry(0.28, 0.065, 0.9),
           '#e5c87f',
           (v.x + w.x) / 2,
           0.26,
@@ -330,7 +392,7 @@ export default function Board({
       } else {
         const v = game.vertices[a.id];
         m = part(
-          new T.CylinderGeometry(0.14, 0.17, 0.045, 20),
+          new T.CylinderGeometry(0.23, 0.25, 0.05, 24),
           '#bca36c',
           v.x,
           0.242,
@@ -345,6 +407,9 @@ export default function Board({
       rt.targets.add(m);
     }
   }, [game, actions, lite]);
+  useEffect(() => {
+    runtime.current?.showGhost(preview);
+  }, [preview, actions, game, lite]);
   useEffect(() => {
     const rt = runtime.current;
     if (rt) updateReducedMotion(rt, reducedMotion);

@@ -62,6 +62,26 @@ export function mountSceneFeedback(
         gsap.to(ring.scale, { x: 3, y: 3, z: 3, duration: 0.65 });
         gsap.to(material, { opacity: 0, duration: 0.65, onComplete: remove });
       }
+      for (const tile of event.producing) {
+        const material = new T.MeshBasicMaterial({
+          color: '#efd29a',
+          transparent: true,
+          opacity: 0.5 * policy.strength,
+          depthWrite: false,
+        });
+        const ring = new T.Mesh(new T.RingGeometry(0.78, 0.86, 6), material);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(tile.x, 0.24, tile.z);
+        scene.add(ring);
+        const remove = () => {
+          scene.remove(ring);
+          ring.geometry.dispose();
+          material.dispose();
+          transient.delete(remove);
+        };
+        transient.add(remove);
+        gsap.to(material, { opacity: 0, duration: 1.2, onComplete: remove });
+      }
       if (!policy.flights) return;
       const remaining = [...event.gains];
       let count = 0;

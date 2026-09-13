@@ -106,6 +106,15 @@ export function useGameFeedback(
       if (event.gains.some((n) => n > 0) && event.move === 'roll')
         gsap.delayedCall(0.32, () => gameAudio.play('collect'));
       if (level === 'off') return;
+      event.playerGains.forEach((amount, seat) => {
+        const badge = scope.querySelector<HTMLElement>(
+          `[data-player="${seat}"] [data-player-gain]`,
+        );
+        if (badge && amount) {
+          badge.textContent = `+${amount} cards`;
+          badges.push(badge);
+        }
+      });
       for (let i = 0; i < 5; i++) {
         const delta = event.gains[i] - event.losses[i];
         if (!delta) continue;

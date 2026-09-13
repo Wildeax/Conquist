@@ -1,4 +1,10 @@
 import {
+  offerCards,
+  ownsCards,
+  validateExchange,
+  exchange,
+} from '../packages/rules/trading.ts';
+import {
   canEquip,
   normalizeLoadout,
   type Loadout,
@@ -31,6 +37,21 @@ export type Offer = {
   give: number;
   want: number;
   interested: number[];
+  giveCards?: number[];
+  wantCards?: number[];
+};
+export type ChatMessage = {
+  id: number;
+  seat: number;
+  text: string;
+  at: number;
+  clientId: string;
+};
+export type TradeResult = {
+  id: string;
+  status: 'completed' | 'cancelled' | 'expired';
+  owner: number;
+  partner?: number;
 };
 export type Room = {
   code: string;
@@ -39,6 +60,9 @@ export type Room = {
   seats: { name: string; hash: string; cosmetics?: Loadout }[];
   game: Game | null;
   tradePost?: Offer | null;
+  chat?: ChatMessage[];
+  chatRevision?: number;
+  tradeResult?: TradeResult;
   /** Kept empty so older servers can safely reload snapshots on rollback. */
   offer: null;
   lastMove?: Action['type'] | null;
@@ -51,6 +75,9 @@ export type RoomView = {
   game: Game | null;
   actions: Action[];
   offer: Offer | null;
+  chat: ChatMessage[];
+  chatRevision: number;
+  tradeResult?: TradeResult;
   hands: number[];
   points: number[];
   deckCount: number;
@@ -61,7 +88,13 @@ export type Command =
   | { type: 'start'; mapId?: string }
   | { type: 'equip-cosmetic'; slot: CosmeticSlot; id: string }
   | { type: 'action'; action: Action }
-  | { type: 'post-offer'; give: number; want: number }
+  | {
+      type: 'post-offer';
+      give?: number;
+      want?: number;
+      giveCards?: number[];
+      wantCards?: number[];
+    }
   | { type: 'respond'; offerId: string; accept: boolean }
   | { type: 'choose-trader'; offerId: string; partner: number }
   | { type: 'cancel-offer'; offerId: string };
@@ -162,6 +195,38 @@ export class Rooms {
     this.presence.set(`${room.code}:${seat}`, Date.now());
     return seat;
   }
+  chat(code: string, token: string, text: unknown, clientId: unknown) {
+    const room = structuredClone(this.get(code));
+    const seat = this.seat(room, token);
+    if (typeof clientId !== 'string' || !/^[a-zA-Z0-9-]{16,64}$/.test(clientId))
+      throw new Error('Invalid message identifier.');
+    if (room.chat?.some((m) => m.seat === seat && m.clientId === clientId))
+      return this.view(code, token);
+    if (typeof text !== 'string' || !text.trim() || text.length > 280)
+      throw new Error('Messages must contain 1 to 280 characters.');
+    const clean = text
+      // Strip control and directional formatting characters from room messages.
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!clean) throw new Error('Write a message first.');
+    const now = Date.now();
+    if (
+      (room.chat ?? []).filter((m) => m.seat === seat && now - m.at < 10000)
+        .length >= 4
+    )
+      throw new Error(
+        'Please wait a few seconds before sending another message.',
+      );
+    room.chatRevision = (room.chatRevision ?? 0) + 1;
+    room.chat = [
+      ...(room.chat ?? []),
+      { id: room.chatRevision, seat, text: clean, at: now, clientId },
+    ].slice(-100);
+    this.save(room);
+    return this.view(code, token);
+  }
   command(code: string, token: string, revision: number, command: Command) {
     const room = structuredClone(this.get(code));
     const seat = this.seat(room, token);
@@ -206,18 +271,17 @@ export class Rooms {
       if (command.type === 'post-offer') {
         if (seat !== g.active || g.phase !== 'main' || g.freeRoads)
           throw new Error('Post a trade during your turn after rolling.');
-        const { give, want } = command;
-        if (
-          !Number.isInteger(give) ||
-          !Number.isInteger(want) ||
-          give < 0 ||
-          give > 4 ||
-          want < 0 ||
-          want > 4 ||
-          give === want ||
-          g.players[seat].resources[give] < 1
-        )
-          throw new Error('Choose different resources and a card you own.');
+        const giveCards =
+          command.giveCards ??
+          Array.from({ length: 5 }, (_, i) => (i === command.give ? 1 : 0));
+        const wantCards =
+          command.wantCards ??
+          Array.from({ length: 5 }, (_, i) => (i === command.want ? 1 : 0));
+        validateExchange(giveCards, wantCards);
+        if (!ownsCards(g.players[seat].resources, giveCards))
+          throw new Error('Choose different resources and cards you own.');
+        const give = giveCards.findIndex((n) => n > 0),
+          want = wantCards.findIndex((n) => n > 0);
         if (room.tradePost)
           throw new Error('Cancel your current post before creating another.');
         room.tradePost = {
@@ -227,6 +291,8 @@ export class Rooms {
           give,
           want,
           interested: [],
+          giveCards,
+          wantCards,
         };
       } else if (
         command.type === 'respond' ||
@@ -244,11 +310,19 @@ export class Rooms {
         if (command.type === 'cancel-offer') {
           if (seat !== offer.owner)
             throw new Error('Only the owner can cancel this post.');
+          room.tradeResult = {
+            id: offer.id,
+            status: 'cancelled',
+            owner: offer.owner,
+          };
           room.tradePost = null;
         } else if (command.type === 'respond') {
           if (seat === offer.owner || typeof command.accept !== 'boolean')
             throw new Error('Only another player can join this trade.');
-          if (command.accept && g.players[seat].resources[offer.want] < 1)
+          if (
+            command.accept &&
+            !ownsCards(g.players[seat].resources, offerCards(offer).want)
+          )
             throw new Error('You need the requested card to join this trade.');
           offer.interested = offer.interested.filter((i) => i !== seat);
           if (command.accept) offer.interested.push(seat);
@@ -258,12 +332,14 @@ export class Rooms {
             !offer.interested.includes(command.partner)
           )
             throw new Error('Choose a player who joined your trade.');
-          room.game = apply(g, {
-            type: 'barter',
-            give: offer.give,
-            want: offer.want,
+          const cards = offerCards(offer);
+          room.game = exchange(g, command.partner, cards.give, cards.want);
+          room.tradeResult = {
+            id: offer.id,
+            status: 'completed',
+            owner: offer.owner,
             partner: command.partner,
-          });
+          };
           room.lastMove = 'barter';
           room.tradePost = null;
         }
@@ -282,11 +358,20 @@ export class Rooms {
           (next.turn !== room.tradePost.turn ||
             next.active !== room.tradePost.owner ||
             next.phase === 'over')
-        )
+        ) {
+          room.tradeResult = {
+            id: room.tradePost.id,
+            status: 'expired',
+            owner: room.tradePost.owner,
+          };
           room.tradePost = null;
+        }
         if (room.tradePost)
-          room.tradePost.interested = room.tradePost.interested.filter(
-            (i) => next.players[i].resources[room.tradePost!.want] > 0,
+          room.tradePost.interested = room.tradePost.interested.filter((i) =>
+            ownsCards(
+              next.players[i].resources,
+              offerCards(room.tradePost!).want,
+            ),
           );
       } else throw new Error('Unknown command.');
     }
@@ -319,6 +404,9 @@ export class Rooms {
       })),
       game,
       offer: room.tradePost ?? null,
+      chat: room.chat ?? [],
+      chatRevision: room.chatRevision ?? 0,
+      tradeResult: room.tradeResult,
       actions:
         source && actorOf(source) === seat
           ? legalActions(source).filter((a) => a.type !== 'barter')
