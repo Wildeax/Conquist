@@ -12,6 +12,22 @@ export function createRoomServer(directory: string) {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     const send = (status: number, value: unknown) => {
       res.writeHead(status);
+      // Older open tabs can keep playing, but must refresh to use the new trade UI.
+      const legacyView = (candidate: unknown) => {
+        if (
+          candidate &&
+          typeof candidate === 'object' &&
+          'actions' in candidate &&
+          'offer' in candidate
+        )
+          return { ...candidate, offer: null };
+        return candidate;
+      };
+      if (req.headers['x-conquist-protocol'] !== '2') {
+        if (value && typeof value === 'object' && 'view' in value)
+          value = { ...value, view: legacyView(value.view) };
+        else value = legacyView(value);
+      }
       res.end(JSON.stringify(value));
     };
     try {

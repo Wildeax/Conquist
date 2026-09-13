@@ -1,6 +1,7 @@
 FROM node:22-bookworm-slim
 WORKDIR /app
 COPY app/server/ ./server/
+COPY app/lib/cosmetics.ts ./lib/cosmetics.ts
 COPY app/packages/rules/ ./packages/rules/
 COPY app/package.json ./package.json
 RUN mkdir /data && chown node:node /data
