@@ -294,7 +294,8 @@ export default function Board({
         const pulse = 0.5 + Math.sin(elapsed * 4.2) * 0.5;
         const hovered = m === hover;
         mat.emissiveIntensity = hovered ? 2 : rt.reduced ? 1 : 0.8 + pulse;
-        mat.opacity = hovered ? 1 : rt.reduced ? 0.9 : 0.74 + pulse * 0.2;
+        // The ghost model becomes the entire hover target; the marker stays raycastable.
+        mat.opacity = hovered ? 0 : rt.reduced ? 0.9 : 0.74 + pulse * 0.2;
         const scale = hovered ? 1.1 : rt.reduced ? 1.02 : 0.97 + pulse * 0.1;
         m.scale.setScalar(scale);
       }
@@ -398,7 +399,7 @@ export default function Board({
       } else {
         const v = game.vertices[a.id];
         m = part(
-          new T.CylinderGeometry(0.23, 0.25, 0.05, 24),
+          new T.CylinderGeometry(0.1725, 0.1875, 0.05, 24),
           '#bca36c',
           v.x,
           0.242,
