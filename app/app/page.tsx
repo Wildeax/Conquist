@@ -493,7 +493,7 @@ export default function Home() {
             priority
             unoptimized
             className="welcome-art"
-            src="/art/ember-isles.png"
+            src="/art/ember-isles-v1.webp"
             alt="Original miniature archipelago with forests, golden farms and an ember-lit volcano"
           />
           <div className="welcome-shade" />

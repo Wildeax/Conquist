@@ -12,9 +12,11 @@ Portable GLB versions of the seven model types are in `public/models/`. Rebuild 
 
 These original assets were generated with the built-in image generation tool, visually inspected, and copied into the repository. The supplied game screenshot informed the desired presentation, not copied artwork. Atlases are sampled with cell-specific UVs or CSS background positions.
 
-- `public/art/terrain-atlas.png`: 1536 × 1024, three columns and two rows: forest soil, clay, meadow, crop stubble, basalt, sandy ash.
-- `public/art/leader-atlas.png`: 1254 × 1254, two-by-two portraits: amber captain, teal navigator, coral stoneworker, violet scholar. The generator returned a larger size than requested.
-- `public/art/resource-atlas.png`: 1024 × 1536, two columns and three rows: logs, bricks, wool, wheat, stone, fortune card. Alpha includes softly painted shading around the objects.
+- `public/art/terrain-atlas-v1.webp`: 1536 × 1024, three columns and two rows: forest soil, clay, meadow, crop stubble, basalt, sandy ash.
+- `public/art/leader-atlas-v1.webp`: 1254 × 1254, two-by-two portraits: amber captain, teal navigator, coral stoneworker, violet scholar. The generator returned a larger size than requested.
+- `public/art/resource-atlas-v1.webp`: 1024 × 1536, two columns and three rows: logs, bricks, wool, wheat, stone, fortune card. Alpha includes softly painted shading around the objects.
+
+The public files use quality-82 WebP compression. Versioned names allow browsers and the CDN to cache them permanently while a future visual revision can use a new filename.
 
 Generation prompts:
 
@@ -34,7 +36,7 @@ Water revision: replaced directional sine stripes with drifting, rotated noise l
 
 ## Generated illustration
 
-File: `public/art/ember-isles.png`
+File: `public/art/ember-isles-v1.webp`
 
 Created with the built-in image generation tool, then inspected and copied into this repository. Used on the game menu. Dimensions: 1536 × 1024.
 

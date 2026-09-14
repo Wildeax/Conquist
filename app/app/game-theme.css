@@ -220,7 +220,7 @@
   width: 64px;
   height: 76px;
   flex-shrink: 0;
-  background-image: url('/art/leader-atlas.png');
+  background-image: url('/art/leader-atlas-v1.webp');
   background-size: 200% 200%;
   border: 2px solid var(--player);
   border-radius: 7px 7px 15px 15px;
@@ -439,7 +439,7 @@
 }
 .resource-sprite {
   display: block;
-  background-image: url('/art/resource-atlas.png');
+  background-image: url('/art/resource-atlas-v1.webp');
   background-size: 200% 300%;
   width: 62px;
   height: 62px;
@@ -546,7 +546,7 @@
 }
 .fortune-card {
   background-image:
-    linear-gradient(#14252b77, #14252b77), url('/art/resource-atlas.png');
+    linear-gradient(#14252b77, #14252b77), url('/art/resource-atlas-v1.webp');
   background-size:
     cover,
     200% 300%;
