@@ -10,6 +10,7 @@ export function mountSceneFeedback(
   camera: T.Camera,
   host: HTMLElement,
   policy: ReturnType<typeof feedbackPolicy>,
+  presentation = { spacing: 1, surface: 0.215 },
 ) {
   let context: gsap.Context | null = null;
   const transient = new Set<() => void>();
@@ -37,8 +38,8 @@ export function mountSceneFeedback(
           );
           gsap.fromTo(
             model.position,
-            { y: 0.215 + 0.22 * policy.strength },
-            { y: 0.215, duration: 0.42, ease: 'bounce.out' },
+            { y: presentation.surface + 0.22 * policy.strength },
+            { y: presentation.surface, duration: 0.42, ease: 'bounce.out' },
           );
         }
         const material = new T.MeshBasicMaterial({
@@ -49,7 +50,11 @@ export function mountSceneFeedback(
         });
         const ring = new T.Mesh(new T.RingGeometry(0.15, 0.19, 32), material);
         ring.rotation.x = -Math.PI / 2;
-        ring.position.set(build.x, 0.24, build.z);
+        ring.position.set(
+          build.x * presentation.spacing,
+          presentation.surface + 0.025,
+          build.z * presentation.spacing,
+        );
         scene.add(ring);
         const remove = () => {
           scene.remove(ring);
@@ -70,7 +75,11 @@ export function mountSceneFeedback(
         });
         const ring = new T.Mesh(new T.RingGeometry(0.78, 0.86, 6), material);
         ring.rotation.x = -Math.PI / 2;
-        ring.position.set(tile.x, 0.24, tile.z);
+        ring.position.set(
+          tile.x * presentation.spacing,
+          presentation.surface + 0.025,
+          tile.z * presentation.spacing,
+        );
         scene.add(ring);
         const remove = () => {
           scene.remove(ring);
@@ -93,9 +102,11 @@ export function mountSceneFeedback(
         if (!target) continue;
         const destination = target.getBoundingClientRect();
         if (destination.width === 0 || destination.top > innerHeight) continue;
-        const projected = new T.Vector3(source.x, 0.45, source.z).project(
-          camera,
-        );
+        const projected = new T.Vector3(
+          source.x * presentation.spacing,
+          0.45,
+          source.z * presentation.spacing,
+        ).project(camera);
         if (projected.z < -1 || projected.z > 1) continue;
         const chip = document.createElement('span');
         chip.className = 'resource-flight';

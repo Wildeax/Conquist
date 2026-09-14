@@ -24,6 +24,7 @@
   },
   "ignorePatterns": [
     "components/ui/**",
+    "public/diorama/draco/**",
     "hooks/use-mobile.ts",
     ".next/**",
     ".vinext/**",

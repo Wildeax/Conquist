@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conquist · Tablero para navegador</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#17221f;color:#e8ebdf;font:15px/1.5 system-ui,sans-serif}
+header{position:absolute;left:16px;top:16px;z-index:2;max-width:320px;max-height:calc(100dvh - 80px);overflow:auto;background:#18231fed;padding:14px;border:1px solid #536250;border-radius:12px}
+h1{font:500 21px Georgia,serif;margin:0 0 10px}.row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+button,select{font:13px system-ui;color:inherit;background:#29382d;border:1px solid #6b7e60;border-radius:6px;padding:6px 9px;cursor:pointer}
+details{margin-top:12px}summary{cursor:pointer;color:#bfd596;font-size:13px}
+button[aria-pressed=true]{background:#bfd596;color:#203019}button:disabled{opacity:.55;cursor:wait}
+#status{font-size:13px;color:#c3ceba;margin-top:12px;min-height:40px}.note{font-size:12px;color:#9cae99;margin:8px 0 0}
+canvas{display:block}footer{position:absolute;bottom:16px;left:20px;background:#18231fcc;padding:7px 12px;border-radius:6px;color:#c9d5bf;font-size:12px}
+body>canvas{position:fixed;inset:0}
+footer{z-index:2}
+.board-tags{position:absolute;inset:0;z-index:1;overflow:hidden;pointer-events:none}
+.tag-leaders{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.tag-leader{fill:none;stroke:#f2e7c2;stroke-width:1.2;opacity:.8;filter:drop-shadow(0 1px 1px #18231f)}
+.board-tag{position:absolute;left:0;top:0;display:flex;box-shadow:0 2px 7px #0d181b70;box-sizing:border-box}
+.board-tag[hidden],.board-tags[hidden]{display:none}
+.number-tag{width:42px;height:42px;flex-direction:column;align-items:center;justify-content:center;border:1px solid #b69e68;border-radius:8px;background:#f4e7c9;color:#2a2924}
+.number-tag strong{font:bold 23px/25px Georgia,serif}.probability{font:8px/9px system-ui;letter-spacing:1px;white-space:nowrap}
+.number-tag.frequent{color:#a02b26;border-color:#c57256;background:#fff0d1}
+.port-tag{width:110px;height:32px;align-items:center;justify-content:space-between;padding:0 8px;border:1px solid var(--tag-color);border-left:4px solid var(--tag-color);border-radius:7px;background:#182b2af2;color:#f5eedb;font:12px/1 system-ui}
+.port-tag strong{font-size:15px;color:var(--tag-color)}
+.player-key{position:absolute;left:20px;bottom:60px;z-index:2;display:flex;gap:14px;padding:9px 12px;border-radius:8px;background:#18231fed;border:1px solid #536250;font:12px system-ui}
+.player-key span{display:flex;align-items:center;gap:5px}.player-key i{display:block;width:20px;height:14px;background:var(--player);clip-path:polygon(0 0,100% 0,80% 50%,100% 100%,0 100%)}
+@media(max-width:600px){.player-key{left:10px;max-width:calc(100% - 20px);flex-wrap:wrap;gap:7px 12px;font-size:11px}}
+@media(max-width:600px){header{left:10px;right:10px;top:10px;max-width:none;padding:12px}h1{font-size:20px}.note{display:none}footer{left:10px;bottom:10px}}
+</style>
+<script type="importmap">{"imports":{"three":"/app/node_modules/three/build/three.module.js","three/addons/":"/app/node_modules/three/examples/jsm/"}}</script>
+</head><body>
+<header><h1>Conquist · Prueba del tablero</h1>
+<div class="row"><button id="reset">Centrar</button><button id="house">Ver casa</button><button id="city">Ver ciudad</button><button id="port">Ver puerto</button><button id="robber">Ver ladrón</button></div>
+<details><summary>Vistas y controles</summary>
+<div class="row"><button id="optimized" aria-pressed="true">Optimizado</button><button id="original" aria-pressed="false">Original v03</button></div>
+<div class="row"><button id="shadows" aria-pressed="true">Sombras: activadas</button><button id="mountain">Ver montaña</button><button id="forest">Ver bosque</button><button id="pasture">Ver ovejas</button><button id="sides">Ver bordes</button></div>
+<div class="row"><button id="water" aria-pressed="true">Agua: activada</button><button id="waves" aria-pressed="true">Pausar olas</button><button id="sea">Ver mar</button><button id="rocks">Ver rocas</button></div>
+<div class="row"><button id="life" aria-pressed="true">Pausar vida del mapa</button></div>
+<div class="row"><button id="pieces" aria-pressed="true">Construcciones: visibles</button></div>
+</details>
+<div id="status" role="status">Cargando modelos…</div>
+<p class="note">Tablero completo con construcciones de muestra. Arrastra para girar; rueda para acercar. Sin interfaz de partida.</p>
+</header>
+<div class="player-key" aria-label="Colores de los jugadores"><span style="--player:#f2a93b"><i aria-hidden="true"></i>Jugador 1</span><span style="--player:#36b8bd"><i aria-hidden="true"></i>Jugador 2</span><span style="--player:#df655d"><i aria-hidden="true"></i>Jugador 3</span><span style="--player:#aa88e3"><i aria-hidden="true"></i>Jugador 4</span></div>
+<footer>Arrastra para girar y usa la rueda para acercar.</footer>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { createBoardWater } from '/art/blender/browser-water.mjs';
+import { createBoardLife, isStaticSheep } from '/art/blender/browser-life.mjs';
+import { compactLayout,boardPorts } from '/art/blender/browser-layout.mjs';
+import { createBoardPieces } from '/art/blender/browser-pieces.mjs';
+import { createBoardTags } from '/art/blender/browser-tags.mjs';
+import { createBoardLighting } from '/art/blender/browser-lighting.mjs';
+const stems={Stone:'stone-relief',Clay:'clay-relief',Grain:'wheat-fields',Desert:'desert-relief',Timber:'forest',Wool:'pasture'};
+const loader=new GLTFLoader();
+const draco=new DRACOLoader().setDecoderPath('/app/node_modules/three/examples/jsm/libs/draco/gltf/').setWorkerLimit(2);
+loader.setDRACOLoader(draco);
+const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.setSize(innerWidth,innerHeight);
+renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1;
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x718b9b);
+scene.fog=new THREE.Fog(scene.background,140,300);
+const lighting=createBoardLighting(renderer,scene),light=lighting.sun;
+light.castShadow=true;light.shadow.mapSize.set(2048,2048);
+Object.assign(light.shadow.camera,{left:-6,right:6,top:6,bottom:-6,near:.5,far:25});
+light.shadow.camera.updateProjectionMatrix();
+light.shadow.bias=-.00015;light.shadow.normalBias=.0045;
+// The sun and board stay fixed when the viewing camera moves.
+light.shadow.autoUpdate=false;light.shadow.needsUpdate=true;
+const camera=new THREE.OrthographicCamera();camera.near=0.1;camera.far=600;
+const controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,0.2,0);
+controls.enableDamping=false;controls.minZoom=.65;controls.maxZoom=10;controls.maxPolarAngle=Math.PI*.45;
+// Orthographic distance does not change apparent size. Keep every viewport ray
+// above the water at low angles, including the widest zoom-out setting.
+controls.minDistance=80;controls.maxDistance=80;controls.screenSpacePanning=false;
+let renderPending=false,frames=0,active,mode='optimized',busy=false;
+let shadows=true,shadowDraws=0;
+let water,life,pieces,tags,pieceBytes=0,piecesVisible=true,waterEnabled=true,waterMotion=!matchMedia('(prefers-reduced-motion: reduce)').matches;
+let lifeMotion=waterMotion,lifeClock=0,lastLifeRefresh=-Infinity,lifeShadowRefreshes=0;
+let needsRender=true,lastWaveFrame=0,waterClock=0,lastWaterClock=performance.now(),benchmarking=false;
+const cache=new Map(),loads={};
+const status=document.querySelector('#status');
+function movingWater(){return !!water&&waterEnabled&&waterMotion&&!document.hidden;}
+function movingLife(){return !!life&&lifeMotion&&!document.hidden;}
+function movingScene(){return movingWater()||movingLife();}
+function draw(){
+  const now=performance.now();
+  const dt=Math.min((now-lastWaterClock)/1000,.1);
+  if(movingWater())waterClock+=dt;
+  if(movingLife())lifeClock+=dt;
+  lastWaterClock=now;water?.setTime(waterClock);
+  life?.setTime(lifeClock);pieces?.setTime(lifeClock);
+  if(movingLife()&&lifeClock-lastLifeRefresh>=.25){
+    light.shadow.needsUpdate=true;water?.invalidateReflection();lastLifeRefresh=lifeClock;lifeShadowRefreshes++;
+  }
+  needsRender=false;water?.updateReflection(renderer,scene,camera);renderer.render(scene,camera);tags?.update(camera);frames++;
+}
+function frame(time){
+  renderPending=false;
+  if(benchmarking)return;
+  if(needsRender||(movingScene()&&time-lastWaveFrame>=1000/30)){draw();lastWaveFrame=time;}
+  if(movingScene())scheduleFrame();
+}
+function scheduleFrame(){if(!renderPending){renderPending=true;requestAnimationFrame(frame);}}
+function requestDraw(){needsRender=true;scheduleFrame();}
+addEventListener('visibilitychange',()=>{lastWaterClock=performance.now();if(!document.hidden)requestDraw();});
+function resize(){const width=document.documentElement.clientWidth,height=document.documentElement.clientHeight,a=width/height;const half=5.4;camera.left=-half*a;camera.right=half*a;camera.top=half;camera.bottom=-half;camera.updateProjectionMatrix();renderer.setSize(width,height);requestDraw();}
+function reset(){camera.position.set(7.5,10,12);camera.zoom=1;controls.target.set(0,.2,0);camera.updateProjectionMatrix();controls.update();requestDraw();}
+controls.addEventListener('change',requestDraw);addEventListener('resize',resize);resize();reset();
+new ResizeObserver(requestDraw).observe(document.querySelector('header'));
+const layout=compactLayout(await (await fetch('/art/blender/output/layout.json')).json());
+water=createBoardWater(layout.hexes,boardPorts(layout));lighting.apply(water.mesh);scene.add(water.mesh);
+const rigResponse=await fetch('/art/blender/output/web-v01/SheepRig.glb',{cache:'no-store'});
+if(!rigResponse.ok)throw Error('No se pudo cargar la oveja animada');
+const rigBytes=await rigResponse.arrayBuffer(),rig=await loader.parseAsync(rigBytes,'');
+life=createBoardLife(layout.hexes,rig.scene);lighting.apply(life.group);scene.add(life.group);
+const constructionMetadata=await (await fetch('/art/blender/output/web-v01/board-pieces-report.json',{cache:'no-store'})).json();
+const constructionAssets=await Promise.all(['Settlement','City','Road','Port','Robber','Cargo'].map(async kind=>{
+  const response=await fetch('/art/blender/output/web-v01/'+kind+'.glb',{cache:'no-store'});
+  if(!response.ok)throw Error('No se pudo cargar '+kind);
+  const bytes=await response.arrayBuffer();pieceBytes+=bytes.byteLength;
+  const gltf=await loader.parseAsync(bytes,'');return [kind,gltf.scene];
+}));
+pieces=createBoardPieces(layout,new Map(constructionAssets),constructionMetadata);scene.add(pieces.group);
+lighting.apply(pieces.group);
+tags=createBoardTags(layout,pieces.ports);
+const piecesButton=document.querySelector('#pieces');
+function setPiecesVisible(enabled){piecesVisible=!!enabled;pieces.group.visible=piecesVisible;tags.setVisible(piecesVisible);
+  piecesButton.setAttribute('aria-pressed',String(piecesVisible));piecesButton.textContent=piecesVisible?'Construcciones: visibles':'Construcciones: ocultas';
+  water.invalidateReflection();light.shadow.needsUpdate=true;updateStatus();requestDraw();}
+piecesButton.addEventListener('click',()=>setPiecesVisible(!piecesVisible));
+function focusConstruction(point,height,zoom){controls.target.set(point.x,height,point.z);camera.position.set(point.x+3,height+2.4,point.z+4);
+  camera.zoom=zoom;camera.updateProjectionMatrix();controls.update();requestDraw();}
+function focusBuilding(p,zoom){
+  const angle=p.rotation+.40;
+  controls.target.set(p.x,.27,p.z);camera.position.set(p.x+Math.sin(angle)*4,2.8,p.z+Math.cos(angle)*4);
+  camera.zoom=zoom;camera.updateProjectionMatrix();controls.update();requestDraw();
+}
+document.querySelector('#city').addEventListener('click',()=>focusBuilding(pieces.focusCity,6));
+document.querySelector('#house').addEventListener('click',()=>focusBuilding(pieces.focusHouse,8));
+document.querySelector('#robber').addEventListener('click',()=>{const p=pieces.focusRobber;focusConstruction(p,p.y,9);});
+document.querySelector('#port').addEventListener('click',()=>{
+  const p=pieces.focusPort,x=p.x+p.dx*.34,z=p.z+p.dz*.34;
+  controls.target.set(x,.22,z);camera.position.set(x+p.dx*4+p.dz*1.5,3,z+p.dz*4-p.dx*1.5);
+  camera.zoom=5;camera.updateProjectionMatrix();controls.update();requestDraw();
+});
+const lifeButton=document.querySelector('#life');
+function setLifeMotion(enabled){
+  lifeMotion=!!enabled;lifeButton.setAttribute('aria-pressed',String(lifeMotion));
+  lifeButton.textContent=lifeMotion?'Pausar vida del mapa':'Animar vida del mapa';
+  lastWaterClock=performance.now();light.shadow.needsUpdate=true;water.invalidateReflection();requestDraw();
+}
+lifeButton.addEventListener('click',()=>setLifeMotion(!lifeMotion));setLifeMotion(lifeMotion);
+const waterButton=document.querySelector('#water'),wavesButton=document.querySelector('#waves');
+function updateWaterButtons(){
+  waterButton.setAttribute('aria-pressed',String(waterEnabled));waterButton.textContent=waterEnabled?'Agua: activada':'Agua: desactivada';
+  wavesButton.setAttribute('aria-pressed',String(waterMotion));wavesButton.textContent=waterMotion?'Pausar olas':'Animar olas';wavesButton.disabled=!waterEnabled;
+}
+function updateStatus(){if(active)status.textContent=(active.userData.triangles+life.triangles+(piecesVisible?pieces.stats().constructionTriangles:0)+(waterEnabled?water.triangles:0)).toLocaleString('es-CO')+' triángulos de escena · '+(loads[mode].bytes/1048576).toFixed(1)+' MiB en modelos únicos';}
+function setWater(enabled){waterEnabled=!!enabled;water.mesh.visible=waterEnabled;water.invalidateReflection();light.shadow.needsUpdate=true;lastWaterClock=performance.now();updateWaterButtons();updateStatus();requestDraw();}
+function setWaterMotion(enabled){waterMotion=!!enabled;lastWaterClock=performance.now();updateWaterButtons();requestDraw();}
+waterButton.addEventListener('click',()=>setWater(!waterEnabled));wavesButton.addEventListener('click',()=>setWaterMotion(!waterMotion));updateWaterButtons();requestDraw();
+document.querySelector('#sea').addEventListener('click',()=>{
+  controls.target.set(0,.1,0);camera.position.set(11,3,14);camera.zoom=1.3;
+  camera.updateProjectionMatrix();controls.update();requestDraw();
+});
+document.querySelector('#rocks').addEventListener('click',()=>{
+  const rock=water.rockFocus;
+  controls.target.set(rock.x,.05,rock.z);camera.position.set(rock.x+2,1.7,rock.z+3);camera.zoom=4;
+  camera.updateProjectionMatrix();controls.update();requestDraw();
+});
+function focusResource(resource){
+  const hex=layout.hexes.find(h=>h.resource===resource);
+  controls.target.set(hex.x,.35,hex.z);camera.position.set(hex.x+3,3.5,hex.z+4);
+  camera.zoom=3.5;camera.updateProjectionMatrix();controls.update();requestDraw();
+}
+function focusMountain(){focusResource('Stone');}
+document.querySelector('#mountain').addEventListener('click',focusMountain);
+document.querySelector('#forest').addEventListener('click',()=>focusResource('Timber'));
+document.querySelector('#pasture').addEventListener('click',()=>focusResource('Wool'));
+document.querySelector('#sides').addEventListener('click',()=>{
+  const hex=layout.hexes.filter(h=>h.resource==='Timber').sort((a,b)=>(b.x*.6+b.z*.8)-(a.x*.6+a.z*.8))[0];
+  controls.target.set(hex.x,0,hex.z);camera.position.set(hex.x+3,.9,hex.z+4);
+  camera.zoom=4;camera.updateProjectionMatrix();controls.update();requestDraw();
+});
+const buttons=[document.querySelector('#optimized'),document.querySelector('#original')];
+const shadowButton=document.querySelector('#shadows');
+function snapshots(){return {mode,triangles:renderer.info.render.triangles,drawCalls:renderer.info.render.calls,
+  shadows,shadowDraws,shadowMapSize:light.shadow.map?.width??0,
+  water:waterEnabled,waterMotion,waterTime:waterClock,waterTriangles:waterEnabled?water.triangles:0,waterRockCount:water.rockCount,waterDrawCalls:water.drawCalls,
+  ...water.reflectionStats(),
+  lifeMotion,lifeShadowRefreshes,...life.stats(),
+  piecesVisible,...pieces.stats(),...lighting.stats(),
+  geometries:renderer.info.memory.geometries,textures:renderer.info.memory.textures,frames,
+  pixelRatio:renderer.getPixelRatio(),width:renderer.domElement.width,height:renderer.domElement.height,
+  transferBytes:loads[mode]?.bytes,loadMs:loads[mode]?.ms};}
+async function loadMode(next){
+  if(cache.has(next))return cache.get(next);
+  const start=performance.now();let bytes=rigBytes.byteLength+pieceBytes;
+  const prefabs=await Promise.all(Object.entries(stems).map(async([kind,stem])=>{
+    // Wool was authored directly for the browser and is shared by both comparisons.
+    const url=next==='optimized'||kind==='Wool'?'/art/blender/output/web-v01/'+kind+'.glb':'/art/blender/output/'+stem+'-v03/'+stem+'-v03.glb';
+    const response=await fetch(url,{cache:'no-store'});if(!response.ok)throw Error('No se pudo cargar '+kind);
+    const data=await response.arrayBuffer();bytes+=data.byteLength;
+    const gltf=await loader.parseAsync(data,'');lighting.apply(gltf.scene);gltf.scene.updateMatrixWorld(true);return [kind,gltf.scene];
+  }));
+  const group=new THREE.Group();const map=new Map(prefabs);
+  if(next==='optimized'){
+    for(const [kind,prefab] of map){
+      const hexes=layout.hexes.filter(h=>(h.resource??'Desert')===kind);
+      prefab.traverse(node=>{if(!node.isMesh||isStaticSheep(node))return;
+        const geometry=node.geometry.clone().applyMatrix4(node.matrixWorld);
+        if(/Ground_Web_PBR$/.test(node.material.name)||node.material.name==='Wool_Meadow_PBR')pieces.setTerrain(kind,geometry);
+        if(kind==='Wool'&&node.material.name==='Wool_Meadow_PBR')life.setGround(geometry);
+        const instances=new THREE.InstancedMesh(geometry,node.material,hexes.length);
+        life.windMesh(instances,kind);
+        instances.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+        for(let i=0;i<hexes.length;i++){
+          const h=hexes[i];const matrix=new THREE.Matrix4().makeTranslation(h.x,0,h.z);
+          instances.setMatrixAt(i,matrix);
+        }
+        instances.instanceMatrix.needsUpdate=true;instances.computeBoundingSphere();group.add(instances);
+      });
+    }
+  }else{
+    for(const h of layout.hexes){
+      const tile=map.get(h.resource??'Desert').clone(true),remove=[];
+      tile.traverse(node=>{if(node.isMesh&&isStaticSheep(node))remove.push(node);});remove.forEach(node=>node.removeFromParent());
+      tile.position.set(h.x,0,h.z);group.add(tile);
+    }
+  }
+  group.traverse(node=>{if(node.isMesh){node.castShadow=true;node.receiveShadow=true;
+    node.onBeforeShadow=()=>{shadowDraws++;};}});
+  lighting.apply(pieces.group); // The terrain pass also places the robber.
+  // Count scene geometry separately from extra draws used to build shadow maps.
+  group.userData.triangles=0;
+  group.traverse(node=>{if(node.isMesh)group.userData.triangles+=(node.geometry.index?.count??node.geometry.attributes.position.count)/3*(node.isInstancedMesh?node.count:1);});
+  cache.set(next,group);loads[next]={bytes,ms:performance.now()-start};return group;
+}
+async function switchMode(next){
+  if(busy)return;busy=true;shadowButton.disabled=true;buttons.forEach(b=>b.disabled=true);status.textContent='Cargando '+(next==='optimized'?'versión optimizada…':'originales de detalle; descarga local grande…');
+  try{const group=await loadMode(next);if(active)scene.remove(active);active=group;scene.add(group);mode=next;
+    water.invalidateReflection();
+    light.shadow.needsUpdate=true;
+    await renderer.compileAsync(scene,camera);draw();
+    updateStatus();
+    buttons.forEach(b=>b.setAttribute('aria-pressed',String(b.id===next)));
+  }finally{busy=false;shadowButton.disabled=false;buttons.forEach(b=>b.disabled=false);}
+}
+async function setShadows(enabled){
+  if(busy)return;
+  shadows=!!enabled;light.castShadow=shadows;light.shadow.needsUpdate=true;
+  water.invalidateReflection();
+  shadowButton.setAttribute('aria-pressed',String(shadows));
+  shadowButton.textContent=shadows?'Sombras: activadas':'Sombras: desactivadas';
+  draw();await new Promise(r=>requestAnimationFrame(r));
+}
+shadowButton.addEventListener('click',()=>setShadows(!shadows).catch(e=>status.textContent=e.message));
+buttons.forEach(b=>b.addEventListener('click',()=>switchMode(b.id).catch(e=>status.textContent=e.message)));
+document.querySelector('#reset').addEventListener('click',reset);
+function rendererName(){const gl=renderer.getContext(),ext=gl.getExtension('WEBGL_debug_renderer_info');return ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER);}
+async function benchmark(next,samples=60,refreshShadows=false){
+  await switchMode(next);reset();await new Promise(r=>requestAnimationFrame(r));
+  benchmarking=true;
+  const values=[];const gl=renderer.getContext();const shadowDrawsBefore=shadowDraws;
+  for(let i=0;i<samples+12;i++){
+    await new Promise(r=>requestAnimationFrame(r));
+    const angle=.50+i*.003;camera.position.set(Math.sin(angle)*14,10,Math.cos(angle)*14);camera.lookAt(0,.2,0);
+    if(refreshShadows)light.shadow.needsUpdate=true;
+    const t=performance.now();draw();gl.finish();const ms=performance.now()-t;
+    if(i>=12)values.push(ms);
+  }
+  const sorted=[...values].sort((a,b)=>a-b),median=sorted[Math.floor(sorted.length/2)],p95=sorted[Math.floor(sorted.length*.95)];
+  const result={...snapshots(),renderer:rendererName(),samples,medianRenderMs:median,p95RenderMs:p95,
+    refreshShadows,shadowDrawsDuringMovement:shadowDraws-shadowDrawsBefore,
+    webglError:gl.getError(),note:'Synchronous CPU+GPU render time during camera movement; not FPS of the full game.'};
+  benchmarking=false;reset();await new Promise(r=>requestAnimationFrame(r));return result;
+}
+// Sample open water in the framebuffer, away from tiles, rocks and HTML overlays.
+// This catches glare that a single default-camera screenshot cannot reveal.
+function inspectWaterView(azimuth,elevation,zoom=1){
+  const a=THREE.MathUtils.degToRad(azimuth),e=THREE.MathUtils.degToRad(elevation);
+  controls.target.set(0,.1,0);camera.position.set(Math.sin(a)*Math.cos(e)*80,.1+Math.sin(e)*80,Math.cos(a)*Math.cos(e)*80);
+  camera.zoom=zoom;camera.updateProjectionMatrix();controls.update();draw();
+  const gl=renderer.getContext(),width=renderer.domElement.width,height=renderer.domElement.height;
+  const pixels=new Uint8Array(width*height*4);gl.readPixels(0,0,width,height,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
+  const brightness=[],point=new THREE.Vector3();
+  for(let x=-12;x<=12;x+=.5)for(let z=-12;z<=12;z+=.5){
+    if(Math.hypot(x,z)<5.8)continue;
+    point.set(x,-.075,z).project(camera);
+    if(Math.abs(point.x)>.96||Math.abs(point.y)>.96)continue;
+    const px=Math.floor((point.x*.5+.5)*width),py=Math.floor((point.y*.5+.5)*height),i=(py*width+px)*4;
+    brightness.push((pixels[i]+pixels[i+1]+pixels[i+2])/(3*255));
+  }
+  brightness.sort((a,b)=>a-b);
+  return {azimuth,elevation,samples:brightness.length,medianBrightness:brightness[Math.floor(brightness.length/2)],
+    whiteFraction:brightness.filter(v=>v>.88).length/brightness.length,webglError:gl.getError()};
+}
+function inspectLifeTime(time){lifeClock=time;life.setTime(time);water.invalidateReflection();light.shadow.needsUpdate=true;draw();return life.stats(true);}
+window.boardReview={switchMode,setShadows,setWater,setWaterMotion,setLifeMotion,setPiecesVisible,inspectLifeTime,benchmark,snapshots,rendererName,reset,focusMountain,inspectWaterView,inspectRocks:()=>water.rockPlacements,inspectTags:()=>tags.inspect(),ready:false};
+try{await switchMode('optimized');window.boardReview.ready=true;}catch(e){status.textContent=e.message;window.boardReview.error=e.message;}
+</script></body></html>

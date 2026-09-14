@@ -15,6 +15,13 @@ import { mountSceneFeedback } from '@/lib/scene/feedback';
 import { feedbackPolicy, type FeedbackLevel } from '@/packages/rules/feedback';
 import { mapPalette } from '@/lib/cosmetics';
 import { OCEAN_HORIZON } from '@/lib/scene/water';
+import { createBoardLighting } from '@/lib/scene/diorama/browser-lighting.mjs';
+import { dioramaLayout } from '@/lib/scene/diorama-state';
+import {
+  loadDioramaAssets,
+  createDiorama,
+  type DioramaRuntime,
+} from '@/lib/scene/diorama/runtime.mjs';
 type Props = {
   game: Game;
   actions: Action[];
@@ -35,6 +42,7 @@ type Runtime = {
   camera: T.PerspectiveCamera;
   controls: OrbitControls;
   reduced: boolean;
+  diorama?: DioramaRuntime;
   showGhost: (action: Action | null) => void;
 };
 function updateReducedMotion(runtime: Runtime, reduced: boolean) {
@@ -102,11 +110,13 @@ export default function Board({
     ),
     host = useRef<HTMLDivElement>(null),
     runtime = useRef<Runtime | null>(null),
-    latest = useRef({ actions, onAction, onPreview, preview });
+    latest = useRef({ game, actions, onAction, onPreview, preview });
   const [error, setError] = useState(false);
+  const [artStatus, setArtStatus] = useState('loading');
+  const [artRevision, setArtRevision] = useState(0);
   useEffect(() => {
-    latest.current = { actions, onAction, onPreview, preview };
-  }, [actions, onAction, onPreview, preview]);
+    latest.current = { game, actions, onAction, onPreview, preview };
+  }, [game, actions, onAction, onPreview, preview]);
   useEffect(() => {
     const el = host.current!;
     let renderer: T.WebGLRenderer;
@@ -126,7 +136,7 @@ export default function Board({
     ).matches;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, lite ? 1 : 1.75));
     renderer.shadowMap.enabled = !lite;
-    renderer.shadowMap.type = T.PCFShadowMap;
+    renderer.shadowMap.type = T.PCFSoftShadowMap;
     // The light and island are static. Refresh this expensive pass only when
     // a road, settlement, city or Raider changes.
     renderer.shadowMap.autoUpdate = false;
@@ -141,7 +151,7 @@ export default function Board({
     el.appendChild(renderer.domElement);
     const scene = new T.Scene();
     scene.background = new T.Color(OCEAN_HORIZON);
-    scene.fog = new T.FogExp2('#173641', 0.023);
+    scene.fog = new T.FogExp2('#173641', 0.006);
     const camera = new T.PerspectiveCamera(36, 1, 0.1, 350);
     camera.position.set(0, 9.7, 12);
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -151,9 +161,8 @@ export default function Board({
     controls.minPolarAngle = 0.12;
     controls.maxPolarAngle = Math.PI * 0.43;
     controls.target.set(0, 0.12, 0);
-    scene.add(new T.HemisphereLight('#cce2e7', '#66543a', 1.65));
-    const sun = new T.DirectionalLight('#ffe0a0', 3.1);
-    sun.position.set(-7, 10, 4);
+    const lighting = createBoardLighting(renderer, scene);
+    const sun = lighting.sun;
     sun.castShadow = !lite;
     sun.shadow.mapSize.set(lite ? 512 : 2048, lite ? 512 : 2048);
     Object.assign(sun.shadow.camera, {
@@ -164,13 +173,12 @@ export default function Board({
       near: 0.1,
       far: 30,
     });
-    sun.shadow.normalBias = 0.025;
-    sun.shadow.bias = -0.0002;
+    sun.shadow.normalBias = 0.0045;
+    sun.shadow.bias = -0.00015;
     scene.add(sun);
-    const rim = new T.DirectionalLight('#9cbcd2', 1);
-    rim.position.set(5, 4, -7);
-    scene.add(rim);
-    const environment = createEnvironment(scene, terrain, lite, reduced);
+    let fallback: ReturnType<typeof createEnvironment> | null = null;
+    const lifecycle = new AbortController();
+    let disposed = false;
     const pieces = new T.Group(),
       targets = new T.Group();
     scene.add(pieces, targets);
@@ -208,13 +216,21 @@ export default function Board({
           m.userData.action.id === action.id,
       );
       if (!target) return;
-      ghost = createModel(
-        action.type as 'road' | 'settlement' | 'city' | 'raider',
-        '#ffe6a0',
-      );
+      ghost = rt.diorama
+        ? rt.diorama.preview(action)
+        : createModel(
+            action.type as 'road' | 'settlement' | 'city' | 'raider',
+            '#ffe6a0',
+          );
       ghost.position.copy(target.position);
-      ghost.position.y = 0.23;
-      if (action.type === 'road') ghost.rotation.y = target.rotation.y;
+      ghost.userData.placementGhost = true;
+      ghost.position.y = rt.diorama ? 0.08 : 0.23;
+      if (action.type === 'raider' && rt.diorama)
+        ghost.position.copy(rt.diorama.raiderPosition(action.id));
+      if (action.type === 'road') {
+        ghost.rotation.y = target.rotation.y + (rt.diorama ? Math.PI / 2 : 0);
+        if (rt.diorama) ghost.scale.x = 0.955;
+      }
       ghost.traverse((child) => {
         if (child instanceof T.Mesh) {
           for (const material of Array.isArray(child.material)
@@ -288,6 +304,7 @@ export default function Board({
     renderer.domElement.addEventListener('pointerup', up);
     renderer.domElement.addEventListener('pointermove', move);
     let fitted = false;
+    let narrow = window.matchMedia('(max-width: 760px)').matches;
     const resize = () => {
       if (!el.clientWidth || !el.clientHeight) return;
       renderer.setSize(el.clientWidth, el.clientHeight);
@@ -308,7 +325,9 @@ export default function Board({
       }
       camera.updateProjectionMatrix();
       // Fit once on mount. Layout changes must not overwrite the player's zoom.
-      if (!fitted) {
+      const nextNarrow = window.matchMedia('(max-width: 760px)').matches;
+      if (!fitted || narrow !== nextNarrow) {
+        narrow = nextNarrow;
         fitBoard(camera, controls);
         fitted = true;
       }
@@ -320,10 +339,12 @@ export default function Board({
       elapsed = 0;
     const render = (now: number) => {
       const delta = previous ? Math.min((now - previous) / 1000, 0.05) : 0;
+      if (now - previous < 1000 / 30) return;
       previous = now;
       if (document.hidden) return;
       if (!rt.reduced) elapsed += delta;
-      environment.update(elapsed);
+      fallback?.update(elapsed);
+      rt.diorama?.update(elapsed, rt.reduced);
       for (const m of targets.children) {
         const mat = (m as T.Mesh).material as T.MeshStandardMaterial;
         const pulse = 0.5 + Math.sin(elapsed * 4.2) * 0.5;
@@ -340,10 +361,57 @@ export default function Board({
         m.scale.setScalar(scale);
       }
       controls.update();
+      rt.diorama?.beforeRender();
       renderer.render(scene, camera);
+      rt.diorama?.afterRender();
     };
     renderer.setAnimationLoop(render);
+    setArtStatus('loading');
+    void loadDioramaAssets(lifecycle.signal)
+      .then((assets) => {
+        if (disposed) {
+          assets.dispose();
+          return;
+        }
+        try {
+          dispose(pieces);
+          pieces.clear();
+          rt.diorama = createDiorama({
+            scene,
+            renderer,
+            camera,
+            host: el,
+            game: latest.current.game,
+            assets,
+            lighting,
+            lite,
+            pieces,
+            targets,
+          });
+          showGhost(null);
+          setArtStatus('ready');
+          setArtRevision((value) => value + 1);
+        } catch (error) {
+          assets.dispose();
+          throw error;
+        }
+      })
+      .catch((error) => {
+        if (disposed || lifecycle.signal.aborted) return;
+        console.error('Diorama loading failed', error);
+        fallback = createEnvironment(
+          scene,
+          dioramaLayout(terrain),
+          lite,
+          reduced,
+        );
+        setArtStatus('fallback');
+        setArtRevision((value) => value + 1);
+      });
     return () => {
+      disposed = true;
+      lifecycle.abort();
+      rt.diorama?.dispose();
       renderer.setAnimationLoop(null);
       observer.disconnect();
       controls.dispose();
@@ -362,54 +430,57 @@ export default function Board({
   useEffect(() => {
     const rt = runtime.current;
     if (!rt) return;
-    const snapshot = structuredClone(game);
+    const snapshot = dioramaLayout(game);
     rt.showGhost(null);
     dispose(rt.targets);
     rt.targets.clear();
-    const nextKeys = new Set<string>();
-    const existing = new Map(
-      rt.pieces.children.map((piece) => [piece.name, piece]),
-    );
-    function add(make: () => T.Group, key: string, x: number, z: number) {
-      if (!existing.has(key)) {
-        const model = make();
-        model.position.set(x, 0.215, z);
-        model.name = key;
-        rt!.pieces.add(model);
+    if (rt.diorama) rt.diorama.sync(game);
+    else {
+      const nextKeys = new Set<string>();
+      const existing = new Map(
+        rt.pieces.children.map((piece) => [piece.name, piece]),
+      );
+      function add(make: () => T.Group, key: string, x: number, z: number) {
+        if (!existing.has(key)) {
+          const model = make();
+          model.position.set(x, 0.215, z);
+          model.name = key;
+          rt!.pieces.add(model);
+        }
+        nextKeys.add(key);
       }
-      nextKeys.add(key);
-    }
-    for (const v of snapshot.vertices)
-      if (v.owner !== null)
-        add(
-          () => createModel(v.city ? 'city' : 'settlement', COLORS[v.owner!]),
-          `v${v.id}-${v.city}`,
-          v.x,
-          v.z,
-        );
-    for (const e of snapshot.edges)
-      if (e.owner !== null) {
-        const a = snapshot.vertices[e.a],
-          b = snapshot.vertices[e.b];
-        add(
-          () => {
-            const road = createModel('road', COLORS[e.owner!]);
-            road.rotation.y = Math.atan2(b.x - a.x, b.z - a.z);
-            return road;
-          },
-          `e${e.id}`,
-          (a.x + b.x) / 2,
-          (a.z + b.z) / 2,
-        );
-      }
-    const h = snapshot.hexes[snapshot.raider];
-    add(() => createModel('raider'), `raider${h.id}`, h.x + 0.29, h.z - 0.11);
-    for (const piece of rt.pieces.children.filter(
-      (piece) => !nextKeys.has(piece.name),
-    )) {
-      if (!nextKeys.has(piece.name)) {
-        rt.pieces.remove(piece);
-        dispose(piece);
+      for (const v of snapshot.vertices)
+        if (v.owner !== null)
+          add(
+            () => createModel(v.city ? 'city' : 'settlement', COLORS[v.owner!]),
+            `v${v.id}-${v.city}`,
+            v.x,
+            v.z,
+          );
+      for (const e of snapshot.edges)
+        if (e.owner !== null) {
+          const a = snapshot.vertices[e.a],
+            b = snapshot.vertices[e.b];
+          add(
+            () => {
+              const road = createModel('road', COLORS[e.owner!]);
+              road.rotation.y = Math.atan2(b.x - a.x, b.z - a.z);
+              return road;
+            },
+            `e${e.id}`,
+            (a.x + b.x) / 2,
+            (a.z + b.z) / 2,
+          );
+        }
+      const h = snapshot.hexes[snapshot.raider];
+      add(() => createModel('raider'), `raider${h.id}`, h.x + 0.29, h.z - 0.11);
+      for (const piece of rt.pieces.children.filter(
+        (piece) => !nextKeys.has(piece.name),
+      )) {
+        if (!nextKeys.has(piece.name)) {
+          rt.pieces.remove(piece);
+          dispose(piece);
+        }
       }
     }
     const seen = new Set<string>();
@@ -420,29 +491,29 @@ export default function Board({
       seen.add(key);
       let m: T.Mesh;
       if (a.type === 'road') {
-        const e = game.edges[a.id],
-          v = game.vertices[e.a],
-          w = game.vertices[e.b];
+        const e = snapshot.edges[a.id],
+          v = snapshot.vertices[e.a],
+          w = snapshot.vertices[e.b];
         m = part(
           new T.BoxGeometry(0.28, 0.065, 0.9),
           '#e5c87f',
           (v.x + w.x) / 2,
-          0.26,
+          0.12,
           (v.z + w.z) / 2,
         );
         m.rotation.y = Math.atan2(w.x - v.x, w.z - v.z);
       } else if (a.type === 'raider') {
-        const h = game.hexes[a.id];
-        m = part(new T.RingGeometry(0.69, 0.74, 6), '#efd298', h.x, 0.25, h.z);
+        const h = snapshot.hexes[a.id];
+        m = part(new T.RingGeometry(0.69, 0.74, 6), '#efd298', h.x, 0.13, h.z);
         m.rotation.x = -Math.PI / 2;
         m.rotation.z = Math.PI / 6;
       } else {
-        const v = game.vertices[a.id];
+        const v = snapshot.vertices[a.id];
         m = part(
           new T.CylinderGeometry(0.1725, 0.1875, 0.05, 24),
           '#bca36c',
           v.x,
-          0.242,
+          0.12,
           v.z,
         );
       }
@@ -456,10 +527,10 @@ export default function Board({
       rt.targets.add(m);
     }
     rt.renderer.shadowMap.needsUpdate = !lite;
-  }, [game, actions, lite]);
+  }, [game, actions, lite, artRevision]);
   useEffect(() => {
     runtime.current?.showGhost(preview);
-  }, [preview, actions, game, lite]);
+  }, [preview, actions, game, lite, artRevision]);
   useEffect(() => {
     const rt = runtime.current;
     if (rt) updateReducedMotion(rt, reducedMotion);
@@ -473,6 +544,7 @@ export default function Board({
       rt.camera,
       host.current,
       feedbackPolicy(feedbackLevel, reducedMotion, lite),
+      { spacing: 0.955, surface: 0.08 },
     );
   }, [terrain, lite, feedbackLevel, reducedMotion]);
   useEffect(() => {
@@ -520,6 +592,14 @@ export default function Board({
   }, [view, reducedMotion]);
   return (
     <div className="board-canvas" ref={host}>
+      {artStatus === 'loading' && !error && (
+        <output className="diorama-loading">Loading the island...</output>
+      )}
+      {artStatus === 'fallback' && (
+        <output className="diorama-loading">
+          Detailed art unavailable. Playing with basic models.
+        </output>
+      )}
       {error && (
         <div className="webgl-error">
           3D is unavailable. Enable hardware acceleration or try another
