@@ -29,6 +29,7 @@ type Props = {
 };
 type Runtime = {
   scene: T.Scene;
+  renderer: T.WebGLRenderer;
   pieces: T.Group;
   targets: T.Group;
   camera: T.PerspectiveCamera;
@@ -126,6 +127,10 @@ export default function Board({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, lite ? 1 : 1.75));
     renderer.shadowMap.enabled = !lite;
     renderer.shadowMap.type = T.PCFShadowMap;
+    // The light and island are static. Refresh this expensive pass only when
+    // a road, settlement, city or Raider changes.
+    renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = !lite;
     renderer.outputColorSpace = T.SRGBColorSpace;
     renderer.toneMapping = T.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
@@ -171,6 +176,7 @@ export default function Board({
     scene.add(pieces, targets);
     const rt: Runtime = {
       scene,
+      renderer,
       pieces,
       targets,
       camera,
@@ -227,6 +233,7 @@ export default function Board({
       pointer = new T.Vector2();
     let startX = 0,
       startY = 0,
+      dragging = false,
       hover: T.Mesh | null = null;
     function pick(e: PointerEvent) {
       const rect = renderer.domElement.getBoundingClientRect();
@@ -242,9 +249,14 @@ export default function Board({
     const down = (e: PointerEvent) => {
       startX = e.clientX;
       startY = e.clientY;
+      dragging = false;
     };
     const up = (e: PointerEvent) => {
-      if (Math.hypot(e.clientX - startX, e.clientY - startY) > 6) return;
+      const moved =
+        dragging || Math.hypot(e.clientX - startX, e.clientY - startY) > 6;
+      dragging = false;
+      renderer.domElement.style.cursor = 'grab';
+      if (moved) return;
       const hit = pick(e);
       if (hit) {
         if (e.pointerType === 'touch' && latest.current.onPreview)
@@ -253,6 +265,15 @@ export default function Board({
       }
     };
     const move = (e: PointerEvent) => {
+      if (e.buttons && Math.hypot(e.clientX - startX, e.clientY - startY) > 6) {
+        if (!dragging) {
+          dragging = true;
+          hover = null;
+          showGhost(null);
+          renderer.domElement.style.cursor = 'grabbing';
+        }
+        return;
+      }
       hover = pick(e) ?? null;
       renderer.domElement.style.cursor = hover ? 'pointer' : 'grab';
       if (e.pointerType !== 'touch')
@@ -294,7 +315,11 @@ export default function Board({
         const pulse = 0.5 + Math.sin(elapsed * 4.2) * 0.5;
         const hovered = m === hover;
         // Keep the resting glow while lowering the pulse peak from 1.8 to 1.53 (15%).
-        mat.emissiveIntensity = hovered ? 2 : rt.reduced ? 1 : 0.8 + pulse * 0.73;
+        mat.emissiveIntensity = hovered
+          ? 2
+          : rt.reduced
+            ? 1
+            : 0.8 + pulse * 0.73;
         // The ghost model becomes the entire hover target; the marker stays raycastable.
         mat.opacity = hovered ? 0 : rt.reduced ? 0.9 : 0.74 + pulse * 0.2;
         const scale = hovered ? 1.1 : rt.reduced ? 1.02 : 0.97 + pulse * 0.1;
@@ -416,6 +441,7 @@ export default function Board({
       m.userData.action = structuredClone(a);
       rt.targets.add(m);
     }
+    rt.renderer.shadowMap.needsUpdate = !lite;
   }, [game, actions, lite]);
   useEffect(() => {
     runtime.current?.showGhost(preview);

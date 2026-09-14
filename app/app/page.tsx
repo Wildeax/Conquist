@@ -171,10 +171,19 @@ export default function Home() {
           g.version === 1 &&
           g.hexes?.length === 19 &&
           g.players?.length === 4
-        )
+        ) {
+          const passAndPlayNames = ['Amber', 'Azure', 'Crimson', 'Violet'];
+          const legacyPassAndPlay = g.players.every(
+            (p: { name?: string }, i: number) => p.name === passAndPlayNames[i],
+          );
+          g.players.forEach((p: { bot?: boolean }, i: number) => {
+            if (typeof p.bot !== 'boolean')
+              p.bot = legacyPassAndPlay ? false : i > 0;
+          });
           // Hydrate the optional local save after server rendering.
           // eslint-disable-next-line react/react-compiler
           setSaved(g);
+        }
       }
     } catch {}
   }, []);
@@ -194,7 +203,9 @@ export default function Home() {
     bot = network
       ? actor !== online.view?.seat || online.busy || !online.connected
       : game.players[actor].bot,
-    local = !network && game.players.every((p) => !p.bot),
+    // Requiring explicit false keeps older incomplete saves from being mistaken
+    // for pass-and-play games and changing the displayed private hand each turn.
+    local = !network && game.players.every((p) => p.bot === false),
     viewer = network ? (online.view?.seat ?? 0) : local ? actor : 0,
     player = game.players[viewer];
   useGameFeedback(
@@ -269,6 +280,24 @@ export default function Home() {
       ? Math.max(0, Math.ceil((deadline - currentTime) / 1000))
       : 0,
     timeoutRevision = useRef(-1);
+  const countdownCue = useRef('');
+  useEffect(() => {
+    if (
+      !playing ||
+      bot ||
+      handoff ||
+      game.phase === 'over' ||
+      !deadline ||
+      secondsLeft < 1 ||
+      secondsLeft > 10 ||
+      document.hidden
+    )
+      return;
+    const cue = `${turnIdentity}:${secondsLeft}`;
+    if (countdownCue.current === cue) return;
+    countdownCue.current = cue;
+    gameAudio.playCountdown(secondsLeft);
+  }, [playing, bot, handoff, game.phase, deadline, secondsLeft, turnIdentity]);
   useEffect(() => {
     if (
       network ||
@@ -674,7 +703,7 @@ export default function Home() {
                     Turn {game.turn}
                     {game.phase !== 'over' && (
                       <span
-                        className={secondsLeft <= 15 ? 'clock-urgent' : ''}
+                        className={`${secondsLeft <= 10 ? 'clock-urgent' : ''}${secondsLeft <= 3 ? ' clock-critical' : ''}`}
                         aria-label={`${secondsLeft} seconds left in this turn`}
                       >
                         <Clock3 size={12} aria-hidden="true" />

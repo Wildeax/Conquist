@@ -128,6 +128,30 @@ class GameAudio {
     if (this.enabled && this.ctx?.state === 'suspended')
       void this.ctx.resume().catch(() => {});
   }
+  playCountdown(secondsLeft: number) {
+    if (
+      secondsLeft < 1 ||
+      secondsLeft > 10 ||
+      !this.enabled ||
+      !this.ctx ||
+      this.ctx.state !== 'running'
+    )
+      return;
+    const t = this.ctx.currentTime;
+    if (t - this.lastCue < 0.2) return;
+    this.lastCue = t;
+    const urgency = 10 - secondsLeft;
+    this.hit(t, 0.045, 0.12 + urgency * 0.004, 1850 + urgency * 65);
+    this.tone(
+      720 + urgency * 24,
+      t,
+      0.075,
+      0.045 + urgency * 0.002,
+      'triangle',
+      540 + urgency * 18,
+    );
+    if (secondsLeft <= 3) this.tone(1080, t + 0.09, 0.055, 0.035, 'sine', 820);
+  }
   private tone(
     f: number,
     time: number,

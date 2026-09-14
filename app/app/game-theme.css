@@ -2257,3 +2257,117 @@
     min-width: 32px;
   }
 }
+
+/* Airy game HUD: controls float above the island instead of shortening it. */
+.conquist.is-playing {
+  position: relative;
+}
+.is-playing .hand-dock {
+  position: absolute;
+  left: 205px;
+  right: 285px;
+  bottom: 12px;
+  z-index: 12;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  pointer-events: none;
+}
+.is-playing .hand-dock button {
+  pointer-events: auto;
+  box-shadow: 0 7px 18px #00171da3;
+}
+.is-playing .hand-dock .resource-card {
+  border-color: #c7ad7270;
+}
+.is-playing .hand-dock .build-actions,
+.is-playing .hand-dock .turn-action {
+  border-left-color: #d3ba7452;
+}
+
+/* Use the full right rail and reserve room above the dice as they tumble. */
+.is-playing .table-sidebar {
+  padding-top: 10px;
+}
+.is-playing .table-panel {
+  overflow: hidden;
+}
+.is-playing .table-dice {
+  min-height: 76px;
+  padding: 17px 6px 8px;
+  overflow: visible;
+}
+
+.is-playing .board-meta {
+  bottom: 112px;
+}
+.is-playing .camera-actions {
+  bottom: 72px;
+}
+.action-message,
+.action-strip .placement-panel,
+.action-strip .cancel-build {
+  bottom: 94px;
+}
+.action-strip .feedback-status {
+  bottom: 124px;
+}
+
+.is-playing .board-meta .clock-urgent {
+  border-color: #e3a05da8;
+  background: #402823e8;
+  color: #ffd3a0;
+  box-shadow:
+    0 0 0 1px #ffb46022,
+    0 4px 14px #0005;
+  animation: turn-clock-pulse 1s ease-in-out infinite;
+}
+.is-playing .board-meta .clock-critical {
+  color: #ffe0c0;
+  border-color: #ff8d68c7;
+}
+@keyframes turn-clock-pulse {
+  50% {
+    transform: scale(1.055);
+    filter: brightness(1.12);
+  }
+}
+
+@media (max-width: 1050px) and (min-width: 761px) {
+  .is-playing .hand-dock {
+    left: 174px;
+    right: 238px;
+    transform: scale(0.88);
+    transform-origin: bottom center;
+  }
+}
+@media (max-width: 760px) {
+  .is-playing .hand-dock {
+    position: relative;
+    inset: auto;
+    padding: 7px 8px max(9px, env(safe-area-inset-bottom));
+    background: transparent;
+    transform: none;
+  }
+  .is-playing .board-meta {
+    bottom: 51px;
+  }
+  .is-playing .camera-actions {
+    bottom: 12px;
+  }
+  .action-message,
+  .action-strip .placement-panel,
+  .action-strip .cancel-build {
+    bottom: 8px;
+  }
+  .action-strip .feedback-status {
+    bottom: 36px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-playing .board-meta .clock-urgent {
+    animation: none;
+  }
+}
