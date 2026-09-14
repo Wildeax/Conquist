@@ -293,7 +293,8 @@ export default function Board({
         const mat = (m as T.Mesh).material as T.MeshStandardMaterial;
         const pulse = 0.5 + Math.sin(elapsed * 4.2) * 0.5;
         const hovered = m === hover;
-        mat.emissiveIntensity = hovered ? 2 : rt.reduced ? 1 : 0.8 + pulse;
+        // Keep the resting glow while lowering the pulse peak from 1.8 to 1.53 (15%).
+        mat.emissiveIntensity = hovered ? 2 : rt.reduced ? 1 : 0.8 + pulse * 0.73;
         // The ghost model becomes the entire hover target; the marker stays raycastable.
         mat.opacity = hovered ? 0 : rt.reduced ? 0.9 : 0.74 + pulse * 0.2;
         const scale = hovered ? 1.1 : rt.reduced ? 1.02 : 0.97 + pulse * 0.1;

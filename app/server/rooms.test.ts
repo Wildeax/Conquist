@@ -55,6 +55,40 @@ test('rooms require four players, host start, authenticated seats, and current r
   );
 });
 
+test('the host configures an authoritative deadline that advances an idle turn', (t) => {
+  const { rooms, code, tokens, send } = table(t);
+  const started = send(0, { type: 'start', turnSeconds: 120 });
+  assert.equal(started.turnSeconds, 120);
+  assert.ok(started.turnDeadline! > started.serverNow);
+
+  const room = rooms.get(code);
+  room.game!.phase = 'main';
+  room.turnDeadline = Date.now() - 1;
+  rooms.save(room);
+  const revision = room.revision;
+  const expired = rooms.view(code, tokens[0]);
+  assert.equal(expired.game!.active, 1);
+  assert.equal(expired.game!.phase, 'roll');
+  assert.equal(expired.revision, revision + 1);
+  assert.match(expired.game!.log[0], /turn expired/);
+  assert.ok(expired.turnDeadline! > expired.serverNow);
+
+  const nextRoom = rooms.get(code);
+  nextRoom.turnDeadline = Date.now() - 1;
+  rooms.save(nextRoom);
+  const rolledOut = rooms.view(code, tokens[0]);
+  assert.equal(rolledOut.game!.active, 2);
+  assert.equal(rolledOut.game!.phase, 'roll');
+});
+
+test('online rooms reject unsupported turn times', (t) => {
+  const { send } = table(t);
+  assert.throws(
+    () => send(0, { type: 'start', turnSeconds: 10 }),
+    /available turn time/,
+  );
+});
+
 test('private views redact resource composition, cards, deck order, RNG and credentials', (t) => {
   const { rooms, code, tokens, send, directory } = table(t);
   send(0, { type: 'start' });

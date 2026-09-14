@@ -34,6 +34,7 @@ export function useOnlineRoom() {
   const [busy, setBusy] = useState(false);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState('');
+  const [receivedAt, setReceivedAt] = useState(() => Date.now());
   const current = useRef<Session | null>(null);
   const locked = useRef(false);
   const viewRef = useRef<RoomView | null>(null);
@@ -50,6 +51,7 @@ export function useOnlineRoom() {
       }
       viewRef.current = next;
       setView(next);
+      setReceivedAt(Date.now());
     }
     if (viewRef.current && next.chatRevision > viewRef.current.chatRevision) {
       viewRef.current = {
@@ -186,6 +188,7 @@ export function useOnlineRoom() {
     view,
     busy,
     connected,
+    receivedAt,
     error,
     enter,
     send,

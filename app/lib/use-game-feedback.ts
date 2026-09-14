@@ -93,55 +93,84 @@ export function useGameFeedback(
     }
     if (!event || document.hidden || !root.current) return;
     cleanup.current?.();
-    gameAudio.play(event.won ? 'win' : actionCue({ type: event.move }));
-    feedbackEvents.emit(event);
-    const scope = root.current;
     const policy = feedbackPolicy(level, reduced);
+    const rewardDelay = event.move === 'roll' && policy.animate ? 760 : 0;
+    gameAudio.play(event.won ? 'win' : actionCue({ type: event.move }));
+    const sceneTimer = window.setTimeout(
+      () => feedbackEvents.emit(event),
+      rewardDelay,
+    );
+    const scope = root.current;
     const status = scope.querySelector<HTMLOutputElement>(
       '[data-feedback-status]',
     );
-    if (status) status.textContent = level === 'off' ? '' : event.message;
+    const statusTimer = window.setTimeout(() => {
+      if (status) {
+        status.textContent = level === 'off' ? '' : event.message;
+        if (policy.animate && event.message)
+          gsap.fromTo(
+            status,
+            { opacity: 0, y: 8 * policy.strength },
+            { opacity: 1, y: 0, duration: 0.25 },
+          );
+      }
+    }, rewardDelay);
     const badges: HTMLElement[] = [];
     const ctx = gsap.context(() => {
       if (event.gains.some((n) => n > 0) && event.move === 'roll')
-        gsap.delayedCall(0.32, () => gameAudio.play('collect'));
-      if (level === 'off') return;
-      event.playerGains.forEach((amount, seat) => {
-        const badge = scope.querySelector<HTMLElement>(
-          `[data-player="${seat}"] [data-player-gain]`,
+        gsap.delayedCall(rewardDelay / 1000 + 0.15, () =>
+          gameAudio.play('collect'),
         );
-        if (badge && amount) {
-          badge.textContent = `+${amount} cards`;
-          badges.push(badge);
-        }
-      });
-      for (let i = 0; i < 5; i++) {
-        const delta = event.gains[i] - event.losses[i];
-        if (!delta) continue;
-        const card = scope.querySelector<HTMLElement>(`[data-resource="${i}"]`);
-        const badge = card?.querySelector<HTMLElement>('[data-resource-delta]');
-        if (badge) {
-          badge.textContent = `${delta > 0 ? '+' : '−'}${Math.abs(delta)}`;
-          badge.dataset.direction = delta > 0 ? 'gain' : 'loss';
-          badges.push(badge);
-          gsap.set(badge, { opacity: 1, y: 0 });
-          if (policy.animate)
-            gsap.to(badge, { y: -20, opacity: 0, delay: 0.85, duration: 0.45 });
-        }
-        const icon = card?.querySelector('.resource-sprite');
-        if (icon && policy.animate)
-          gsap.fromTo(
-            icon,
-            { scale: 1 },
-            {
-              scale: delta > 0 ? 1 + 0.16 * policy.strength : 0.93,
-              duration: 0.18,
-              repeat: 1,
-              yoyo: true,
-              ease: 'power2.out',
-            },
+      if (level === 'off') return;
+      const showRewards = () => {
+        event.playerGains.forEach((amount, seat) => {
+          const badge = scope.querySelector<HTMLElement>(
+            `[data-player="${seat}"] [data-player-gain]`,
           );
-      }
+          if (badge && amount) {
+            badge.textContent = `+${amount}`;
+            badges.push(badge);
+          }
+        });
+        for (let i = 0; i < 5; i++) {
+          const delta = event.gains[i] - event.losses[i];
+          if (!delta) continue;
+          const card = scope.querySelector<HTMLElement>(
+            `[data-resource="${i}"]`,
+          );
+          const badge = card?.querySelector<HTMLElement>(
+            '[data-resource-delta]',
+          );
+          if (badge) {
+            badge.textContent = `${delta > 0 ? '+' : '−'}${Math.abs(delta)}`;
+            badge.dataset.direction = delta > 0 ? 'gain' : 'loss';
+            badges.push(badge);
+            gsap.set(badge, { opacity: 1, y: 0 });
+            if (policy.animate)
+              gsap.to(badge, {
+                y: -20,
+                opacity: 0,
+                delay: 0.85,
+                duration: 0.45,
+              });
+          }
+          const icon = card?.querySelector('.resource-sprite');
+          if (icon && policy.animate)
+            gsap.fromTo(
+              icon,
+              { scale: 1 },
+              {
+                scale: delta > 0 ? 1 + 0.16 * policy.strength : 0.93,
+                duration: 0.18,
+                repeat: 1,
+                yoyo: true,
+                ease: 'power2.out',
+              },
+            );
+        }
+      };
+      if (rewardDelay) gsap.delayedCall(rewardDelay / 1000, showRewards);
+      else showRewards();
       if (policy.animate) {
         if (event.move === 'roll') {
           const dice = scope.querySelectorAll('.die');
@@ -172,12 +201,6 @@ export function useGameFeedback(
               },
             );
         }
-        if (status && event.message)
-          gsap.fromTo(
-            status,
-            { opacity: 0, y: 8 * policy.strength },
-            { opacity: 1, y: 0, duration: 0.25 },
-          );
       }
     }, scope);
     const timer = window.setTimeout(() => {
@@ -188,6 +211,8 @@ export function useGameFeedback(
     }, 2400);
     cleanup.current = () => {
       clearTimeout(timer);
+      clearTimeout(sceneTimer);
+      clearTimeout(statusTimer);
       ctx.revert();
       if (status) status.textContent = '';
       badges.forEach((badge) => {

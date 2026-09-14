@@ -23,6 +23,7 @@ import { join } from 'node:path';
 import {
   apply,
   createGame,
+  chooseBotAction,
   legalActions,
   hand,
   score,
@@ -66,6 +67,8 @@ export type Room = {
   /** Kept empty so older servers can safely reload snapshots on rollback. */
   offer: null;
   lastMove?: Action['type'] | null;
+  turnSeconds?: number;
+  turnDeadline?: number | null;
 };
 export type RoomView = {
   code: string;
@@ -83,9 +86,12 @@ export type RoomView = {
   deckCount: number;
   cosmetics: Loadout[];
   lastMove: Action['type'] | null;
+  turnSeconds: number;
+  turnDeadline: number | null;
+  serverNow: number;
 };
 export type Command =
-  | { type: 'start'; mapId?: string }
+  | { type: 'start'; mapId?: string; turnSeconds?: number }
   | { type: 'equip-cosmetic'; slot: CosmeticSlot; id: string }
   | { type: 'action'; action: Action }
   | {
@@ -103,6 +109,11 @@ const hash = (token: string) =>
 export const actorOf = (g: Game) =>
   g.phase === 'discard' ? g.discard.findIndex((n) => n > 0) : g.active;
 const expiry = 7 * 24 * 60 * 60 * 1000;
+const allowedTurnSeconds = new Set([60, 90, 120, 180]);
+const normalizeTurnSeconds = (value: unknown) =>
+  typeof value === 'number' && allowedTurnSeconds.has(value) ? value : 90;
+const turnKey = (game: Game) =>
+  game.phase.startsWith('setup') ? `setup:${game.setup}` : `turn:${game.turn}`;
 
 /** One authoritative process. Every acknowledged mutation is atomically saved. */
 export class Rooms {
@@ -121,6 +132,11 @@ export class Rooms {
       // Old directed offers are cancelled when upgrading a saved room.
       room.offer = null;
       room.tradePost ??= null;
+      room.turnSeconds = normalizeTurnSeconds(room.turnSeconds);
+      room.turnDeadline ??=
+        room.game && room.game.phase !== 'over'
+          ? Date.now() + room.turnSeconds * 1000
+          : null;
       if (
         room.tradePost &&
         (!room.game ||
@@ -139,6 +155,48 @@ export class Rooms {
     writeFileSync(`${path}.tmp`, JSON.stringify(room), { mode: 0o600 });
     renameSync(`${path}.tmp`, path);
     this.rooms.set(room.code, room);
+  }
+  resetDeadline(room: Room) {
+    room.turnDeadline =
+      room.game && room.game.phase !== 'over'
+        ? Date.now() + normalizeTurnSeconds(room.turnSeconds) * 1000
+        : null;
+  }
+  expireTurn(code: string) {
+    const source = this.get(code);
+    if (
+      !source.game ||
+      source.game.phase === 'over' ||
+      !source.turnDeadline ||
+      Date.now() < source.turnDeadline
+    )
+      return;
+    const room = structuredClone(source);
+    const first = room.game!;
+    const key = turnKey(first);
+    const name = first.players[first.active].name;
+    let game: Game = first;
+    let steps = 0;
+    while (game.phase !== 'over' && turnKey(game) === key && steps++ < 128) {
+      const action =
+        legalActions(game).find((candidate) => candidate.type === 'end') ??
+        chooseBotAction(game);
+      game = apply({ ...game, rng: randomInt(1, 0xffffffff) }, action);
+      room.lastMove = action.type;
+    }
+    game.log = [`${name}'s turn expired.`, ...game.log].slice(0, 70);
+    room.game = game;
+    if (room.tradePost) {
+      room.tradeResult = {
+        id: room.tradePost.id,
+        status: 'expired',
+        owner: room.tradePost.owner,
+      };
+      room.tradePost = null;
+    }
+    room.revision++;
+    this.resetDeadline(room);
+    this.save(room);
   }
   name(value: unknown) {
     if (typeof value !== 'string' || !value.trim() || value.trim().length > 24)
@@ -168,6 +226,8 @@ export class Rooms {
       game: null,
       offer: null,
       tradePost: null,
+      turnSeconds: 90,
+      turnDeadline: null,
     };
     this.save(room);
     return { token, view: this.view(code, token) };
@@ -228,6 +288,8 @@ export class Rooms {
     return this.view(code, token);
   }
   command(code: string, token: string, revision: number, command: Command) {
+    this.seat(this.get(code), token);
+    this.expireTurn(code);
     const room = structuredClone(this.get(code));
     const seat = this.seat(room, token);
     // Interest is idempotent and tied to an immutable post ID, so peers may join concurrently.
@@ -253,7 +315,14 @@ export class Rooms {
         throw new Error(
           'The host can start once all four players have joined.',
         );
+      if (
+        command.turnSeconds !== undefined &&
+        !allowedTurnSeconds.has(command.turnSeconds)
+      )
+        throw new Error('Choose an available turn time.');
       room.game = createGame(randomInt(1, 0xffffffff), true, command.mapId);
+      room.turnSeconds = normalizeTurnSeconds(command.turnSeconds);
+      this.resetDeadline(room);
       room.game.players.forEach((p, i) => {
         p.name = room.seats[i].name;
       });
@@ -349,6 +418,7 @@ export class Rooms {
         if (!a || typeof a !== 'object') throw new Error('Invalid move.');
         if (a.type === 'barter')
           throw new Error('Refresh the page to use public trade posts.');
+        const previousTurn = turnKey(g);
         room.game = apply({ ...g, rng: randomInt(1, 0xffffffff) }, a);
         room.lastMove = a.type;
         // Keep posts through builds and temporary card phases, but never across turns.
@@ -373,6 +443,7 @@ export class Rooms {
               offerCards(room.tradePost!).want,
             ),
           );
+        if (turnKey(next) !== previousTurn) this.resetDeadline(room);
       } else throw new Error('Unknown command.');
     }
     room.revision++;
@@ -380,6 +451,8 @@ export class Rooms {
     return this.view(code, token);
   }
   view(code: string, token: string): RoomView {
+    this.seat(this.get(code), token);
+    this.expireTurn(code);
     const room = this.get(code),
       seat = this.seat(room, token),
       source = room.game;
@@ -419,6 +492,9 @@ export class Rooms {
       deckCount: source?.deck.length ?? 0,
       cosmetics: room.seats.map((s) => normalizeLoadout(s.cosmetics)),
       lastMove: room.lastMove ?? null,
+      turnSeconds: normalizeTurnSeconds(room.turnSeconds),
+      turnDeadline: room.turnDeadline ?? null,
+      serverNow: Date.now(),
     };
   }
 }
