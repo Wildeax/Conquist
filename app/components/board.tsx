@@ -292,6 +292,20 @@ export default function Board({
       if (!el.clientWidth || !el.clientHeight) return;
       renderer.setSize(el.clientWidth, el.clientHeight);
       camera.aspect = el.clientWidth / el.clientHeight;
+      if (window.matchMedia('(min-width: 761px)').matches) {
+        // Reserve visual weight for the floating hand without moving the
+        // orbit pivot away from the center of the island.
+        camera.setViewOffset(
+          el.clientWidth,
+          el.clientHeight,
+          0,
+          Math.round(el.clientHeight * 0.065),
+          el.clientWidth,
+          el.clientHeight,
+        );
+      } else {
+        camera.clearViewOffset();
+      }
       camera.updateProjectionMatrix();
       // Fit once on mount. Layout changes must not overwrite the player's zoom.
       if (!fitted) {
