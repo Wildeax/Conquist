@@ -40,6 +40,7 @@ import {
   RotateCcw,
   Eye,
   Anchor,
+  Clock3,
 } from 'lucide-react';
 import {
   Dialog,
@@ -74,6 +75,8 @@ const Board = dynamic(() => import('@/components/board'), {
 });
 const icons = [TreePine, BrickWall, Cloud, Wheat, Mountain],
   storageKey = 'conquist-local-v1';
+const formatClock = (seconds: number) =>
+  `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 export default function Home() {
   const online = useOnlineRoom();
   const feedbackRoot = useRef<HTMLElement>(null);
@@ -101,6 +104,9 @@ export default function Home() {
     [lite, setLite] = useState(false),
     [audio, setAudio] = useState(true),
     [volume, setVolume] = useState(0.55),
+    [turnSeconds, setTurnSeconds] = useState(90),
+    [localDeadline, setLocalDeadline] = useState<number | null>(null),
+    [clock, setClock] = useState(() => Date.now()),
     [notice, setNotice] = useState(''),
     [give, setGive] = useState(0),
     [want, setWant] = useState(3),
@@ -235,6 +241,64 @@ export default function Home() {
     },
     [game, local, actor, network, bot, sendOnline],
   );
+  const turnIdentity = game.phase.startsWith('setup')
+    ? `${game.seed}:setup:${game.setup}`
+    : `${game.seed}:turn:${game.turn}`;
+  const timerRunning = game.phase !== 'over';
+  useEffect(() => {
+    if (!playing || network || !timerRunning) return;
+    // A setup pair and a regular turn each receive one complete clock.
+    // eslint-disable-next-line react/react-compiler
+    setLocalDeadline(Date.now() + turnSeconds * 1000);
+  }, [playing, network, turnIdentity, turnSeconds, timerRunning]);
+  useEffect(() => {
+    if (!playing || game.phase === 'over') return;
+    const tick = () => setClock(Date.now());
+    tick();
+    const timer = window.setInterval(tick, 250);
+    return () => clearInterval(timer);
+  }, [playing, game.phase]);
+  const deadline = network
+      ? (online.view?.turnDeadline ?? null)
+      : localDeadline,
+    currentTime =
+      network && online.view
+        ? online.view.serverNow + Math.max(0, clock - online.receivedAt)
+        : clock,
+    secondsLeft = deadline
+      ? Math.max(0, Math.ceil((deadline - currentTime) / 1000))
+      : 0,
+    timeoutRevision = useRef(-1);
+  useEffect(() => {
+    if (
+      network ||
+      !playing ||
+      bot ||
+      game.phase === 'over' ||
+      !localDeadline ||
+      clock < localDeadline ||
+      timeoutRevision.current === localFeedback.revision
+    )
+      return;
+    timeoutRevision.current = localFeedback.revision;
+    try {
+      const action =
+        legalActions(game).find((candidate) => candidate.type === 'end') ??
+        chooseBotAction(game);
+      // The interval is the external clock source that advances an idle local game.
+      // eslint-disable-next-line react/react-compiler
+      act(action);
+    } catch {}
+  }, [
+    network,
+    playing,
+    bot,
+    game,
+    localDeadline,
+    clock,
+    localFeedback.revision,
+    act,
+  ]);
   const botMove = useMemo(
     () =>
       !network && bot && playing && game.phase !== 'over'
@@ -412,13 +476,15 @@ export default function Home() {
           {online.error}
         </output>
       )}
-      <button
-        className="icon-button floating-settings"
-        aria-label="Settings"
-        onClick={() => setModal('settings')}
-      >
-        <Settings2 size={22} />
-      </button>
+      {!playing && (
+        <button
+          className="icon-button floating-settings"
+          aria-label="Settings"
+          onClick={() => setModal('settings')}
+        >
+          <Settings2 size={22} />
+        </button>
+      )}
       {!playing ? (
         <section className="welcome">
           <Image
@@ -602,9 +668,20 @@ export default function Home() {
             </aside>
             <section className="table-surface" aria-label="Game board">
               <div className="board-topline">
-                <div>
+                <div className="board-meta">
                   <span className="eyebrow">THE EMBER ISLES</span>
-                  <p>Turn {game.turn}</p>
+                  <p>
+                    Turn {game.turn}
+                    {game.phase !== 'over' && (
+                      <span
+                        className={secondsLeft <= 15 ? 'clock-urgent' : ''}
+                        aria-label={`${secondsLeft} seconds left in this turn`}
+                      >
+                        <Clock3 size={12} aria-hidden="true" />
+                        {formatClock(secondsLeft)}
+                      </span>
+                    )}
+                  </p>
                 </div>
                 <div className="camera-actions">
                   <button
@@ -612,14 +689,21 @@ export default function Home() {
                     aria-label="Change camera view"
                     onClick={() => setView(view + 1)}
                   >
-                    <Eye size={19} />
+                    <Eye size={16} />
                   </button>
                   <button
                     className="icon-button"
                     aria-label="Reset camera"
                     onClick={() => setView(view + 2)}
                   >
-                    <RotateCcw size={17} />
+                    <RotateCcw size={15} />
+                  </button>
+                  <button
+                    className="icon-button"
+                    aria-label="Settings"
+                    onClick={() => setModal('settings')}
+                  >
+                    <Settings2 size={16} />
                   </button>
                 </div>
               </div>
@@ -783,7 +867,7 @@ export default function Home() {
                 return (
                   <button
                     key={r}
-                    className={`resource-card res-${i}`}
+                    className={`resource-card res-${i}${!handoff && player.resources[i] === 0 ? ' empty' : ''}`}
                     data-resource={i}
                     onClick={() => {
                       if (
@@ -1089,6 +1173,25 @@ export default function Home() {
                   else appearance.equip(slot, id);
                 }}
               />
+              {!playing && (
+                <label className="field">
+                  Time per turn
+                  <select
+                    value={turnSeconds}
+                    onChange={(event) =>
+                      setTurnSeconds(Number(event.target.value))
+                    }
+                  >
+                    <option value="60">1 minute</option>
+                    <option value="90">1 minute 30 seconds</option>
+                    <option value="120">2 minutes</option>
+                    <option value="180">3 minutes</option>
+                  </select>
+                  <small>
+                    Choose before starting a solo or pass-and-play match.
+                  </small>
+                </label>
+              )}
               <label className="field">
                 Game effects
                 <select

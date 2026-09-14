@@ -1,7 +1,6 @@
 import * as T from 'three';
 import { gsap } from 'gsap';
 import { feedbackEvents } from '@/lib/use-game-feedback';
-import { RESOURCES } from '@/packages/rules/game';
 import type { feedbackPolicy } from '@/packages/rules/feedback';
 
 /** All objects are temporary presentation objects, excluded from board hit testing. */
@@ -101,7 +100,12 @@ export function mountSceneFeedback(
         const chip = document.createElement('span');
         chip.className = 'resource-flight';
         chip.setAttribute('aria-hidden', 'true');
-        chip.textContent = `+${source.amount} ${RESOURCES[source.resource]}`;
+        const icon = document.createElement('span');
+        icon.className = `resource-flight-icon resource-sprite sprite-${source.resource}`;
+        const amount = document.createElement('strong');
+        amount.textContent = `+${source.amount}`;
+        chip.appendChild(icon);
+        chip.appendChild(amount);
         const x = bounds.left + ((projected.x + 1) * bounds.width) / 2;
         const y = bounds.top + ((1 - projected.y) * bounds.height) / 2;
         chip.style.left = `${Math.max(bounds.left, Math.min(bounds.right, x))}px`;

@@ -154,23 +154,41 @@ export function TablePanel({
     game.phase !== 'roll' && game.dice.length === 2
       ? `${game.turn}:${game.dice.join(':')}`
       : '';
+  const previousRoll = useRef(rollKey);
+  const [showRollResult, setShowRollResult] = useState(true);
+  useEffect(() => {
+    if (!rollKey || previousRoll.current === rollKey) {
+      previousRoll.current = rollKey;
+      return;
+    }
+    previousRoll.current = rollKey;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    // eslint-disable-next-line react/react-compiler
+    setShowRollResult(false);
+    const timer = window.setTimeout(() => setShowRollResult(true), 720);
+    return () => clearTimeout(timer);
+  }, [rollKey]);
   return (
     <section className="table-panel" aria-label="Table conversation and trades">
       <div
         className="table-dice"
         aria-label={
-          game.dice.length
-            ? `${game.dice.join(' and ')} rolled`
-            : 'Dice not rolled'
+          !showRollResult
+            ? 'Dice rolling'
+            : game.dice.length
+              ? `${game.dice.join(' and ')} rolled`
+              : 'Dice not rolled'
         }
       >
         {(game.dice.length ? game.dice : [0, 0]).map((n, i) => (
           <AnimatedDie value={n} rollKey={rollKey} index={i} key={i} />
         ))}
         <span>
-          {game.dice.length
-            ? `${game.dice[0] + game.dice[1]} rolled`
-            : 'Ready to roll'}
+          {!showRollResult
+            ? 'Rolling…'
+            : game.dice.length
+              ? `${game.dice[0] + game.dice[1]} rolled`
+              : 'Ready to roll'}
         </span>
       </div>
       <div className="table-tabs" role="tablist" aria-label="Table panels">

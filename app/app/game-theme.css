@@ -2136,3 +2136,124 @@
 .table-sidebar {
   grid-row: 1;
 }
+
+/* Keep map information and controls in a quiet bottom-corner cluster. */
+.is-playing .board-topline {
+  top: 0;
+  bottom: 0;
+}
+.is-playing .board-meta {
+  position: absolute;
+  right: 0;
+  bottom: 54px;
+  text-align: right;
+}
+.is-playing .board-meta p {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.is-playing .board-meta p > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 2px 6px;
+  border: 1px solid #af95554f;
+  border-radius: 9px;
+  background: #102a30d9;
+  color: #dfcfaa;
+  font-variant-numeric: tabular-nums;
+}
+.is-playing .board-meta .clock-urgent {
+  border-color: #e09a656e;
+  color: #ffd09e;
+}
+.is-playing .camera-actions {
+  position: absolute;
+  right: 0;
+  bottom: 14px;
+}
+.is-playing .camera-actions .icon-button {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+/* The prompt occupies only the space required by its content. */
+.action-strip {
+  position: relative;
+  z-index: 20;
+  flex: 0 0 0;
+  min-height: 0;
+  padding: 0;
+  overflow: visible;
+}
+.action-message,
+.action-strip .feedback-status {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  translate: -50% 0;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 4px 10px;
+  border: 1px solid #9d865966;
+  border-radius: 7px;
+  background: #132a2ee8;
+  box-shadow: 0 3px 12px #0005;
+  text-align: center;
+}
+.action-strip .feedback-status {
+  bottom: 36px;
+}
+.action-strip .placement-panel,
+.action-strip .cancel-build {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  translate: -50% 0;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  padding: 4px;
+  border-radius: 8px;
+  background: #132a2ee8;
+}
+
+.is-playing .resource-card.empty {
+  opacity: 0.46;
+  filter: saturate(0.55);
+}
+.resource-flight {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 6px;
+}
+.resource-flight .resource-flight-icon {
+  width: 32px;
+  height: 32px;
+}
+.resource-flight strong {
+  min-width: 22px;
+  font-size: 16px;
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .is-playing .board-meta {
+    bottom: 51px;
+  }
+  .is-playing .camera-actions {
+    bottom: 12px;
+  }
+  .is-playing .camera-actions .icon-button {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+  }
+}
