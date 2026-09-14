@@ -1,7 +1,8 @@
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { Rooms, type Command } from './rooms.ts';
+import { offerCards } from '../packages/rules/trading.ts';
+import { Rooms, type Offer, type Command } from './rooms.ts';
 
 export function createRoomServer(directory: string) {
   const rooms = new Rooms(directory);
@@ -19,11 +20,20 @@ export function createRoomServer(directory: string) {
           typeof candidate === 'object' &&
           'actions' in candidate &&
           'offer' in candidate
-        )
+        ) {
+          if (req.headers['x-conquist-protocol'] === '2' && candidate.offer) {
+            const cards = offerCards(candidate.offer as Offer);
+            if (
+              cards.give.reduce((a, b) => a + b, 0) === 1 &&
+              cards.want.reduce((a, b) => a + b, 0) === 1
+            )
+              return candidate;
+          }
           return { ...candidate, offer: null };
+        }
         return candidate;
       };
-      if (req.headers['x-conquist-protocol'] !== '2') {
+      if (req.headers['x-conquist-protocol'] !== '3') {
         if (value && typeof value === 'object' && 'view' in value)
           value = { ...value, view: legacyView(value.view) };
         else value = legacyView(value);
@@ -52,7 +62,7 @@ export function createRoomServer(directory: string) {
       if (++limit.count > 1200)
         return send(429, { error: 'Too many requests. Try again shortly.' });
       const match =
-        /^\/api\/rooms(?:\/([A-F0-9]{8})(?:\/(join|command))?)?$/.exec(
+        /^\/api\/rooms(?:\/([A-F0-9]{8})(?:\/(join|command|chat))?)?$/.exec(
           url.pathname,
         );
       if (!match) return send(404, { error: 'Not found.' });
@@ -75,6 +85,8 @@ export function createRoomServer(directory: string) {
         throw new Error('Invalid request.');
       if (!code) return send(201, rooms.create(input.name));
       if (operation === 'join') return send(200, rooms.join(code, input.name));
+      if (operation === 'chat')
+        return send(200, rooms.chat(code, token, input.text, input.clientId));
       if (operation === 'command')
         return send(
           200,

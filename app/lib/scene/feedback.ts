@@ -1,7 +1,6 @@
 import * as T from 'three';
 import { gsap } from 'gsap';
 import { feedbackEvents } from '@/lib/use-game-feedback';
-import { RESOURCES } from '@/packages/rules/game';
 import type { feedbackPolicy } from '@/packages/rules/feedback';
 
 /** All objects are temporary presentation objects, excluded from board hit testing. */
@@ -62,6 +61,26 @@ export function mountSceneFeedback(
         gsap.to(ring.scale, { x: 3, y: 3, z: 3, duration: 0.65 });
         gsap.to(material, { opacity: 0, duration: 0.65, onComplete: remove });
       }
+      for (const tile of event.producing) {
+        const material = new T.MeshBasicMaterial({
+          color: '#efd29a',
+          transparent: true,
+          opacity: 0.5 * policy.strength,
+          depthWrite: false,
+        });
+        const ring = new T.Mesh(new T.RingGeometry(0.78, 0.86, 6), material);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(tile.x, 0.24, tile.z);
+        scene.add(ring);
+        const remove = () => {
+          scene.remove(ring);
+          ring.geometry.dispose();
+          material.dispose();
+          transient.delete(remove);
+        };
+        transient.add(remove);
+        gsap.to(material, { opacity: 0, duration: 1.2, onComplete: remove });
+      }
       if (!policy.flights) return;
       const remaining = [...event.gains];
       let count = 0;
@@ -81,7 +100,12 @@ export function mountSceneFeedback(
         const chip = document.createElement('span');
         chip.className = 'resource-flight';
         chip.setAttribute('aria-hidden', 'true');
-        chip.textContent = `+${source.amount} ${RESOURCES[source.resource]}`;
+        const icon = document.createElement('span');
+        icon.className = `resource-flight-icon resource-sprite sprite-${source.resource}`;
+        const amount = document.createElement('strong');
+        amount.textContent = `+${source.amount}`;
+        chip.appendChild(icon);
+        chip.appendChild(amount);
         const x = bounds.left + ((projected.x + 1) * bounds.width) / 2;
         const y = bounds.top + ((1 - projected.y) * bounds.height) / 2;
         chip.style.left = `${Math.max(bounds.left, Math.min(bounds.right, x))}px`;

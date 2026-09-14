@@ -15,14 +15,14 @@ import {
   useLocalCosmetics,
 } from '@/components/cosmetics-picker';
 import { DEFAULT_LOADOUT } from '@/lib/cosmetics';
-import { TradePost } from '@/components/trade-post';
+import { PlayerActionIndicator } from '@/components/player-action-indicator';
+import { TablePanel } from '@/components/table-panel';
+import { PublicTradeComposer } from '@/components/resource-bundle';
 import { OnlineLobby } from '@/components/online-lobby';
 import {
   Compass,
   ArrowRight,
   BookOpen,
-  Volume2,
-  VolumeX,
   Settings2,
   Flag,
   Trophy,
@@ -39,8 +39,8 @@ import {
   Dices,
   RotateCcw,
   Eye,
-  ChevronDown,
   Anchor,
+  Clock3,
 } from 'lucide-react';
 import {
   Dialog,
@@ -75,6 +75,8 @@ const Board = dynamic(() => import('@/components/board'), {
 });
 const icons = [TreePine, BrickWall, Cloud, Wheat, Mountain],
   storageKey = 'conquist-local-v1';
+const formatClock = (seconds: number) =>
+  `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 export default function Home() {
   const online = useOnlineRoom();
   const feedbackRoot = useRef<HTMLElement>(null);
@@ -90,6 +92,7 @@ export default function Home() {
   const sendOnline = online.send;
   const onlineSeed = online.view?.game?.seed;
   const [roomMenu, setRoomMenu] = useState(false);
+  const [candidate, setCandidate] = useState<Action | null>(null);
   const [localGame, setGame] = useState<Game>(() => createGame(42817)),
     [localPlaying, setPlaying] = useState(false),
     [saved, setSaved] = useState<Game | null>(null),
@@ -101,6 +104,9 @@ export default function Home() {
     [lite, setLite] = useState(false),
     [audio, setAudio] = useState(true),
     [volume, setVolume] = useState(0.55),
+    [turnSeconds, setTurnSeconds] = useState(90),
+    [localDeadline, setLocalDeadline] = useState<number | null>(null),
+    [clock, setClock] = useState(() => Date.now()),
     [notice, setNotice] = useState(''),
     [give, setGive] = useState(0),
     [want, setWant] = useState(3),
@@ -165,10 +171,19 @@ export default function Home() {
           g.version === 1 &&
           g.hexes?.length === 19 &&
           g.players?.length === 4
-        )
+        ) {
+          const passAndPlayNames = ['Amber', 'Azure', 'Crimson', 'Violet'];
+          const legacyPassAndPlay = g.players.every(
+            (p: { name?: string }, i: number) => p.name === passAndPlayNames[i],
+          );
+          g.players.forEach((p: { bot?: boolean }, i: number) => {
+            if (typeof p.bot !== 'boolean')
+              p.bot = legacyPassAndPlay ? false : i > 0;
+          });
           // Hydrate the optional local save after server rendering.
           // eslint-disable-next-line react/react-compiler
           setSaved(g);
+        }
       }
     } catch {}
   }, []);
@@ -188,14 +203,17 @@ export default function Home() {
     bot = network
       ? actor !== online.view?.seat || online.busy || !online.connected
       : game.players[actor].bot,
-    local = !network && game.players.every((p) => !p.bot),
+    // Requiring explicit false keeps older incomplete saves from being mistaken
+    // for pass-and-play games and changing the displayed private hand each turn.
+    local = !network && game.players.every((p) => p.bot === false),
     viewer = network ? (online.view?.seat ?? 0) : local ? actor : 0,
     player = game.players[viewer];
   useGameFeedback(
     feedbackRoot,
     {
       game,
-      playing,
+      hands: network ? online.view?.hands : undefined,
+      playing: playing && (!network || online.connected),
       viewer,
       match: network ? online.session!.code : `local:${game.seed}`,
       revision: network ? (online.view?.revision ?? 0) : localFeedback.revision,
@@ -234,6 +252,82 @@ export default function Home() {
     },
     [game, local, actor, network, bot, sendOnline],
   );
+  const turnIdentity = game.phase.startsWith('setup')
+    ? `${game.seed}:setup:${game.setup}`
+    : `${game.seed}:turn:${game.turn}`;
+  const timerRunning = game.phase !== 'over';
+  useEffect(() => {
+    if (!playing || network || !timerRunning) return;
+    // A setup pair and a regular turn each receive one complete clock.
+    // eslint-disable-next-line react/react-compiler
+    setLocalDeadline(Date.now() + turnSeconds * 1000);
+  }, [playing, network, turnIdentity, turnSeconds, timerRunning]);
+  useEffect(() => {
+    if (!playing || game.phase === 'over') return;
+    const tick = () => setClock(Date.now());
+    tick();
+    const timer = window.setInterval(tick, 250);
+    return () => clearInterval(timer);
+  }, [playing, game.phase]);
+  const deadline = network
+      ? (online.view?.turnDeadline ?? null)
+      : localDeadline,
+    currentTime =
+      network && online.view
+        ? online.view.serverNow + Math.max(0, clock - online.receivedAt)
+        : clock,
+    secondsLeft = deadline
+      ? Math.max(0, Math.ceil((deadline - currentTime) / 1000))
+      : 0,
+    timeoutRevision = useRef(-1);
+  const countdownCue = useRef('');
+  useEffect(() => {
+    if (
+      !playing ||
+      bot ||
+      handoff ||
+      game.phase === 'over' ||
+      !deadline ||
+      secondsLeft < 1 ||
+      secondsLeft > 10 ||
+      document.hidden
+    )
+      return;
+    const cue = `${turnIdentity}:${secondsLeft}`;
+    if (countdownCue.current === cue) return;
+    countdownCue.current = cue;
+    gameAudio.playCountdown(secondsLeft);
+  }, [playing, bot, handoff, game.phase, deadline, secondsLeft, turnIdentity]);
+  useEffect(() => {
+    if (
+      network ||
+      !playing ||
+      bot ||
+      game.phase === 'over' ||
+      !localDeadline ||
+      clock < localDeadline ||
+      timeoutRevision.current === localFeedback.revision
+    )
+      return;
+    timeoutRevision.current = localFeedback.revision;
+    try {
+      const action =
+        legalActions(game).find((candidate) => candidate.type === 'end') ??
+        chooseBotAction(game);
+      // The interval is the external clock source that advances an idle local game.
+      // eslint-disable-next-line react/react-compiler
+      act(action);
+    } catch {}
+  }, [
+    network,
+    playing,
+    bot,
+    game,
+    localDeadline,
+    clock,
+    localFeedback.revision,
+    act,
+  ]);
   const botMove = useMemo(
     () =>
       !network && bot && playing && game.phase !== 'over'
@@ -268,16 +362,28 @@ export default function Home() {
         : [];
   }, [all, build, bot, handoff, playing, game.phase, game.freeRoads]);
   useGameTools(game, playing && !network, bot || handoff, act);
+  const preview =
+    (candidate &&
+      selectable.find(
+        (a) => JSON.stringify(a) === JSON.stringify(candidate),
+      )) ||
+    null;
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setBuild(null);
+        setCandidate(null);
+      }
+    };
+    window.addEventListener('keydown', escape);
+    return () => window.removeEventListener('keydown', escape);
+  }, []);
   const onBoardAction = (a: Action) => {
-    if (
-      a.type === 'raider' &&
-      all.filter((b) => b.type === 'raider' && b.id === a.id).length > 1
-    ) {
-      setNotice(
-        'Choose which neighbour to take a card from using Legal locations below.',
-      );
+    if (a.type === 'raider') {
+      setCandidate(a);
       return;
     }
+    setCandidate(null);
     act(a);
   };
   function start(hotseat = false) {
@@ -287,6 +393,7 @@ export default function Home() {
     setLocalFeedback({ revision: 0, move: null });
     setPlaying(true);
     setBuild(null);
+    setCandidate(null);
     setHandoff(false);
     setModal(null);
   }
@@ -309,17 +416,17 @@ export default function Home() {
                 ? `${game.players[actor].name} ${botThought}`
                 : game.phase === 'setup-settlement'
                   ? `Place your ${game.setup < 4 ? 'first' : 'second'} settlement`
-                  : game.phase === 'setup-road'
+                  : game.phase === 'setup-road' || game.freeRoads
                     ? 'Build a road from your new settlement'
                     : game.phase === 'roll'
                       ? 'Your turn. Roll the dice.'
                       : game.phase === 'discard'
                         ? `Discard ${game.discard[actor]} resource cards`
                         : game.phase === 'raider'
-                          ? 'Move the Raider to another tile'
+                          ? 'Move the Raider (robber), then choose whom to steal from'
                           : build
                             ? `Choose a glowing location for your ${build}`
-                            : 'Trade, build, or draw your next Fortune.';
+                            : '';
   const tradeAction: Action =
       partner === -1
         ? { type: 'trade', give, want }
@@ -398,73 +505,15 @@ export default function Home() {
           {online.error}
         </output>
       )}
-      {network && playing && !modal && !roomMenu && online.view?.offer && (
-        <TradePost
-          offer={online.view.offer}
-          game={game}
-          viewer={viewer}
-          disabled={online.busy || !online.connected}
-          send={online.send}
-        />
-      )}
-      <output
-        className="feedback-status"
-        data-feedback-status
-        aria-live="polite"
-        aria-atomic="true"
-      />
-      <header className="topbar">
+      {!playing && (
         <button
-          className="brand"
-          onClick={(e) => {
-            e.preventDefault();
-            if (network) {
-              setRoomMenu(true);
-              return;
-            }
-            setPlaying(false);
-            setSaved(game);
-          }}
+          className="icon-button floating-settings"
+          aria-label="Settings"
+          onClick={() => setModal('settings')}
         >
-          <Compass className="brand-mark" />
-          <span>
-            CONQUIST<small>THE EMBER ISLES</small>
-          </span>
+          <Settings2 size={22} />
         </button>
-        <div className="table-meta">
-          <span className="status-dot" />
-          {!playing
-            ? 'A NEW WORLD AWAITS'
-            : network
-              ? `ONLINE ROOM · ${online.view?.code}`
-              : local
-                ? 'LOCAL TABLE · 4 PLAYERS'
-                : 'SOLO TABLE · 3 OPPONENTS'}
-        </div>
-        <nav aria-label="Game tools">
-          <button
-            className="icon-button"
-            aria-label="How to play"
-            onClick={() => setModal('rules')}
-          >
-            <BookOpen size={19} />
-          </button>
-          <button
-            className="icon-button"
-            aria-label={audio ? 'Mute sound' : 'Enable sound'}
-            onClick={() => setAudio(!audio)}
-          >
-            {audio ? <Volume2 size={19} /> : <VolumeX size={19} />}
-          </button>
-          <button
-            className="icon-button"
-            aria-label="Settings"
-            onClick={() => setModal('settings')}
-          >
-            <Settings2 size={19} />
-          </button>
-        </nav>
-      </header>
+      )}
       {!playing ? (
         <section className="welcome">
           <Image
@@ -473,7 +522,7 @@ export default function Home() {
             priority
             unoptimized
             className="welcome-art"
-            src="/art/ember-isles.png"
+            src="/art/ember-isles-v1.webp"
             alt="Original miniature archipelago with forests, golden farms and an ember-lit volcano"
           />
           <div className="welcome-shade" />
@@ -532,110 +581,135 @@ export default function Home() {
       ) : (
         <>
           <div className="game-layout">
-            <aside className="players-panel">
-              <div className="panel-heading">
-                <span>THE TABLE</span>
-                <span>
-                  {game.target} <Trophy size={13} />
-                </span>
-              </div>
-              {game.players.map((p, i) => (
-                <div
-                  className={`player-card ${game.active === i ? 'active' : ''}`}
-                  data-player={i}
-                  data-profile-skin={
-                    network
-                      ? online.view?.cosmetics?.[i]?.profile
-                      : i === viewer
-                        ? loadout.profile
-                        : 'profile.classic'
-                  }
-                  key={i}
-                  style={{ '--player': COLORS[i] } as React.CSSProperties}
-                >
-                  <div className="player-top">
-                    <div
-                      className={`avatar portrait portrait-${i}`}
-                      aria-hidden="true"
-                    >
-                      <span>{['◆', '◈', '▲', '✦'][i]}</span>
-                    </div>
-                    <div className="player-name">
-                      <strong>{p.name}</strong>
-                      <small>
+            <aside className="player-sidebar" aria-label="Players">
+              {' '}
+              <aside className="players-panel">
+                <div className="panel-heading">
+                  <span>THE TABLE</span>
+                  <span>
+                    {game.target} <Trophy size={13} />
+                  </span>
+                </div>
+                {game.players.map((p, i) => (
+                  <div
+                    className={`player-card ${game.active === i ? 'active' : ''}`}
+                    data-player={i}
+                    data-profile-skin={
+                      network
+                        ? online.view?.cosmetics?.[i]?.profile
+                        : i === viewer
+                          ? loadout.profile
+                          : 'profile.classic'
+                    }
+                    key={i}
+                    style={{ '--player': COLORS[i] } as React.CSSProperties}
+                  >
+                    <PlayerActionIndicator entries={game.log} name={p.name} />
+                    <span
+                      className="player-gain"
+                      data-player-gain
+                      aria-live="polite"
+                    />
+                    <div className="player-top">
+                      <div
+                        className={`avatar portrait portrait-${i}`}
+                        aria-hidden="true"
+                      >
+                        <span className="player-color-dot" />
+                      </div>
+                      <div className="player-name">
+                        <strong>{p.name}</strong>
+                        <small>
+                          {network
+                            ? `${i === viewer ? 'You' : 'Online player'} · ${online.view?.seats[i]?.online ? 'Connected' : 'Reconnecting'}`
+                            : p.bot
+                              ? 'Island rival'
+                              : local
+                                ? 'Local player'
+                                : 'Your expedition'}
+                        </small>
+                      </div>
+                      <strong className="points" title="Victory points">
+                        <Trophy size={12} aria-hidden="true" />
                         {network
-                          ? `${i === viewer ? 'You' : 'Online player'} · ${online.view?.seats[i]?.online ? 'Connected' : 'Reconnecting'}`
-                          : p.bot
-                            ? 'Island rival'
-                            : local
-                              ? 'Local player'
-                              : 'Your expedition'}
-                      </small>
+                          ? online.view?.points[i]
+                          : score(
+                              game,
+                              i,
+                              i !== viewer && game.phase !== 'over',
+                            )}
+                      </strong>
                     </div>
-                    <strong className="points">
-                      {network
-                        ? online.view?.points[i]
-                        : score(game, i, i !== viewer && game.phase !== 'over')}
-                      <small>VP</small>
-                    </strong>
+                    <div className="player-stats">
+                      <span title="Resource cards">
+                        <span className="tiny-cards" />{' '}
+                        {network ? online.view?.hands[i] : hand(game, i)}
+                      </span>
+                      <span title="Roads">
+                        <Route size={14} />{' '}
+                        {game.edges.filter((e) => e.owner === i).length}
+                      </span>
+                      <span title="Guards">
+                        <Flag size={14} /> {p.guards}
+                      </span>
+                      {game.active === i && (
+                        <span className="turn-tag">TURN</span>
+                      )}
+                    </div>
                   </div>
-                  <div className="player-stats">
-                    <span title="Resource cards">
-                      <span className="tiny-cards" />{' '}
-                      {network ? online.view?.hands[i] : hand(game, i)}
+                ))}
+                <div className="awards">
+                  <div>
+                    <Route size={19} />
+                    <span>
+                      Grand Route
+                      <small>
+                        {game.route === null
+                          ? '5 connected roads'
+                          : game.players[game.route].name +
+                            ' · ' +
+                            routeLength(game, game.route) +
+                            ' roads'}
+                      </small>
                     </span>
-                    <span title="Roads">
-                      <Route size={14} />{' '}
-                      {game.edges.filter((e) => e.owner === i).length}
+                    <b>+2</b>
+                  </div>
+                  <div>
+                    <Flag size={19} />
+                    <span>
+                      High Command
+                      <small>
+                        {game.command === null
+                          ? 'Play 3 Guards'
+                          : game.players[game.command].name}
+                      </small>
                     </span>
-                    <span title="Guards">
-                      <Flag size={14} /> {p.guards}
-                    </span>
-                    {game.active === i && (
-                      <span className="turn-tag">TURN</span>
-                    )}
+                    <b>+2</b>
                   </div>
                 </div>
-              ))}
-              <div className="awards">
-                <div>
-                  <Route size={19} />
-                  <span>
-                    Grand Route
-                    <small>
-                      {game.route === null
-                        ? '5 connected roads'
-                        : game.players[game.route].name +
-                          ' · ' +
-                          routeLength(game, game.route) +
-                          ' roads'}
-                    </small>
-                  </span>
-                  <b>+2</b>
-                </div>
-                <div>
-                  <Flag size={19} />
-                  <span>
-                    High Command
-                    <small>
-                      {game.command === null
-                        ? 'Play 3 Guards'
-                        : game.players[game.command].name}
-                    </small>
-                  </span>
-                  <b>+2</b>
-                </div>
-              </div>
-              <button className="rules-link" onClick={() => setModal('rules')}>
-                <BookOpen size={15} /> Rules & build costs
-              </button>
+                <button
+                  className="rules-link"
+                  onClick={() => setModal('rules')}
+                >
+                  <BookOpen size={15} /> Rules & build costs
+                </button>
+              </aside>
             </aside>
             <section className="table-surface" aria-label="Game board">
               <div className="board-topline">
-                <div>
+                <div className="board-meta">
                   <span className="eyebrow">THE EMBER ISLES</span>
                   <p>
-                    Turn {game.turn} <span>•</span> Seed {game.seed}
+                    Turn {game.turn}
+                    {game.phase !== 'over' && (
+                      <span
+                        className={`${secondsLeft <= 10 ? 'clock-urgent' : ''}${secondsLeft <= 3 ? ' clock-critical' : ''}`}
+                        aria-label={`${secondsLeft} seconds left in this turn`}
+                      >
+                        <Clock3 size={12} aria-hidden="true" />
+                        {formatClock(secondsLeft)}
+                      </span>
+                    )}
                   </p>
                 </div>
                 <div className="camera-actions">
@@ -644,14 +718,21 @@ export default function Home() {
                     aria-label="Change camera view"
                     onClick={() => setView(view + 1)}
                   >
-                    <Eye size={19} />
+                    <Eye size={16} />
                   </button>
                   <button
                     className="icon-button"
                     aria-label="Reset camera"
                     onClick={() => setView(view + 2)}
                   >
-                    <RotateCcw size={17} />
+                    <RotateCcw size={15} />
+                  </button>
+                  <button
+                    className="icon-button"
+                    aria-label="Settings"
+                    onClick={() => setModal('settings')}
+                  >
+                    <Settings2 size={16} />
                   </button>
                 </div>
               </div>
@@ -662,95 +743,142 @@ export default function Home() {
                 reducedMotion={feedback.reduced}
                 actions={selectable}
                 onAction={onBoardAction}
+                onPreview={setCandidate}
+                preview={preview}
                 view={view}
                 lite={lite}
               />
-              <div className="board-hint">
-                <span className="hint-dot" />
-                {build
-                  ? 'Click a highlighted location'
-                  : 'Drag to orbit · Scroll to zoom'}
-              </div>
-              <div className="turn-prompt" aria-live="polite">
-                <span style={{ background: COLORS[actor] }} />
-                {message}
-              </div>
             </section>
-            <aside className="activity-panel">
-              <div className="panel-heading">
-                <span>ISLAND CHRONICLE</span>
-                <Compass size={15} />
-              </div>
-              <div className="dice-box">
-                <div
-                  className="dice-pair"
-                  key={`${game.turn}-${game.dice.join('-')}`}
-                >
-                  {(game.dice.length ? game.dice : [0, 0]).map((d, i) => (
-                    <div
-                      className={`die d${d}`}
-                      key={i}
-                      aria-label={`Die ${i + 1}: ${d || 'not rolled'}`}
-                    >
-                      {d ? (
-                        Array.from({ length: 9 }, (_, n) => (
-                          <i
-                            key={n}
-                            className={
-                              (
-                                [
-                                  [],
-                                  [4],
-                                  [0, 8],
-                                  [0, 4, 8],
-                                  [0, 2, 6, 8],
-                                  [0, 2, 4, 6, 8],
-                                  [0, 2, 3, 5, 6, 8],
-                                ][d] as number[]
-                              ).includes(n)
-                                ? 'pip'
-                                : 'blank'
-                            }
-                          />
-                        ))
-                      ) : (
-                        <span>?</span>
-                      )}
+            <aside
+              className="table-sidebar"
+              aria-label="Trades, chat and activity"
+            >
+              <TablePanel
+                key={online.session?.code ?? 'local'}
+                online={online}
+                game={game}
+                viewer={viewer}
+                canPost={
+                  !bot && !handoff && game.phase === 'main' && !game.freeRoads
+                }
+                openTrade={() => {
+                  if (network) setPartner(-2);
+                  setModal('trade');
+                }}
+                activity={
+                  <aside className="activity-panel">
+                    <div className="panel-heading">
+                      <span>ISLAND CHRONICLE</span>
+                      <Compass size={15} />
                     </div>
-                  ))}
-                </div>
-                <span>
-                  {game.dice.length
-                    ? `${game.dice[0] + game.dice[1]} rolled`
-                    : 'The island awaits'}
-                </span>
-              </div>
-              <div className="chronicle" role="log" aria-label="Game history">
-                {game.log.slice(0, 12).map((entry, i) => (
-                  <p
-                    key={`${entry}-${i}`}
-                    className={i === 0 ? 'new-entry' : ''}
-                  >
-                    <span />
-                    {entry}
-                  </p>
-                ))}
-              </div>
-              <div className="bank">
-                <span className="eyebrow">BANK RESERVES</span>
-                <div>
-                  {game.bank.map((n, i) => {
-                    const Icon = icons[i];
-                    return (
-                      <span key={i} title={RESOURCES[i]}>
-                        <Icon size={16} />
-                        {n}
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
+                    <div
+                      className="chronicle"
+                      role="log"
+                      aria-label="Game history"
+                    >
+                      {game.log.slice(0, 12).map((entry, i) => (
+                        <p
+                          key={`${entry}-${i}`}
+                          className={i === 0 ? 'new-entry' : ''}
+                        >
+                          <span />
+                          {entry}
+                        </p>
+                      ))}
+                    </div>
+                    <div className="bank">
+                      <span className="eyebrow">BANK RESERVES</span>
+                      <div>
+                        {game.bank.map((n, i) => {
+                          const Icon = icons[i];
+                          return (
+                            <span key={i} title={RESOURCES[i]}>
+                              <Icon size={16} />
+                              {n}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </aside>
+                }
+              />
             </aside>
+          </div>
+          <div className="action-strip">
+            <output
+              className="feedback-status"
+              data-feedback-status
+              aria-live="polite"
+              aria-atomic="true"
+            />
+
+            {message && <output className="action-message">{message}</output>}
+            {!bot && !handoff && preview && (
+              <section
+                className="placement-panel"
+                aria-label="Placement controls"
+              >
+                {preview?.type === 'raider' ? (
+                  <div className="victim-choices">
+                    {all
+                      .filter((a) => a.type === 'raider' && a.id === preview.id)
+                      .map(
+                        (a, i) =>
+                          a.type === 'raider' && (
+                            <button
+                              key={i}
+                              className="primary"
+                              onClick={() => {
+                                setCandidate(null);
+                                act(a);
+                              }}
+                            >
+                              {a.victim === undefined ? (
+                                'Move here · no cards to steal'
+                              ) : (
+                                <>
+                                  <span
+                                    className={`avatar portrait portrait-${a.victim}`}
+                                  />
+                                  Steal from {game.players[a.victim].name}
+                                </>
+                              )}
+                            </button>
+                          ),
+                      )}
+                  </div>
+                ) : (
+                  preview && (
+                    <button
+                      className="primary"
+                      onClick={() => {
+                        setCandidate(null);
+                        act(preview);
+                      }}
+                    >
+                      Confirm {preview.type}
+                    </button>
+                  )
+                )}
+                {(build || preview) && (
+                  <button
+                    className="secondary"
+                    onClick={() => {
+                      setBuild(null);
+                      setCandidate(null);
+                    }}
+                  >
+                    Cancel selection · Esc
+                  </button>
+                )}
+              </section>
+            )}
+            {!bot && !handoff && build && !preview && (
+              <button className="cancel-build" onClick={() => setBuild(null)}>
+                Cancel · Esc
+              </button>
+            )}
           </div>
           <section className="hand-dock" aria-label="Resources and actions">
             <div className="hand-label">
@@ -768,7 +896,7 @@ export default function Home() {
                 return (
                   <button
                     key={r}
-                    className={`resource-card res-${i}`}
+                    className={`resource-card res-${i}${!handoff && player.resources[i] === 0 ? ' empty' : ''}`}
                     data-resource={i}
                     onClick={() => {
                       if (
@@ -818,10 +946,53 @@ export default function Home() {
                   className={`build-button ${build === key ? 'selected' : ''}`}
                   key={key}
                   disabled={bot || handoff || !all.some((a) => a.type === key)}
-                  onClick={() => setBuild(build === key ? null : key)}
+                  onClick={() => {
+                    setCandidate(null);
+                    setBuild(build === key ? null : key);
+                  }}
                 >
                   <Icon size={21} />
                   <span>{name}</span>
+                  <span className="build-cost" aria-label={`${name} cost`}>
+                    {game.phase === `setup-${key}` ||
+                    (key === 'road' && game.freeRoads) ? (
+                      <span>Free</span>
+                    ) : (
+                      <>
+                        {COSTS[key].map((n, i) => {
+                          const ResourceIcon = icons[i];
+                          return (
+                            n > 0 && (
+                              <span
+                                key={i}
+                                className={
+                                  player.resources[i] < n ? 'missing' : ''
+                                }
+                                title={`${n} ${RESOURCES[i]}`}
+                              >
+                                <ResourceIcon size={12} />
+                                {n}
+                              </span>
+                            )
+                          );
+                        })}
+                      </>
+                    )}
+                  </span>
+                  <small>
+                    {game.phase.startsWith('setup')
+                      ? 'Setup placement'
+                      : bot || handoff || game.phase !== 'main'
+                        ? 'Not available now'
+                        : COSTS[key].some((n, i) => player.resources[i] < n) &&
+                            !(key === 'road' && game.freeRoads)
+                          ? 'Missing cards'
+                          : !all.some((a) => a.type === key)
+                            ? 'No legal location'
+                            : game.freeRoads && key === 'road'
+                              ? 'Free road'
+                              : 'Build now'}
+                  </small>
                 </button>
               ))}
               <button
@@ -860,7 +1031,16 @@ export default function Home() {
                   }
                   onClick={endTurn}
                 >
-                  End turn <ArrowRight size={18} />
+                  {bot || handoff
+                    ? 'Waiting for player'
+                    : game.phase === 'setup-settlement'
+                      ? 'Place a settlement'
+                      : game.phase === 'setup-road' || game.freeRoads
+                        ? 'Place a road'
+                        : game.phase === 'raider'
+                          ? 'Move the Raider'
+                          : 'End turn'}{' '}
+                  <ArrowRight size={18} />
                 </button>
               )}
               <small>
@@ -882,24 +1062,6 @@ export default function Home() {
                 ×
               </button>
             </output>
-          )}
-          {!bot && !handoff && selectable.length > 0 && (
-            <details className="legal-locations">
-              <summary>
-                Legal locations <span>{selectable.length}</span>
-                <ChevronDown size={14} />
-              </summary>
-              <div>
-                {selectable.map((a, i) => (
-                  <button key={i} onClick={() => act(a)}>
-                    {a.type} {'id' in a ? a.id + 1 : ''}
-                    {a.type === 'raider' && a.victim !== undefined
-                      ? ` · take from ${game.players[a.victim].name}`
-                      : ''}
-                  </button>
-                ))}
-              </div>
-            </details>
           )}
           <Dialog open={handoff} onOpenChange={() => {}}>
             <DialogContent showCloseButton={false} className="game-dialog">
@@ -1025,6 +1187,9 @@ export default function Home() {
           {modal === 'settings' && (
             <>
               <DialogTitle>Your table</DialogTitle>
+              <button className="secondary" onClick={() => setModal('rules')}>
+                <BookOpen size={16} /> How to play
+              </button>
               <DialogDescription>
                 Set up your next expedition.
               </DialogDescription>
@@ -1037,6 +1202,25 @@ export default function Home() {
                   else appearance.equip(slot, id);
                 }}
               />
+              {!playing && (
+                <label className="field">
+                  Time per turn
+                  <select
+                    value={turnSeconds}
+                    onChange={(event) =>
+                      setTurnSeconds(Number(event.target.value))
+                    }
+                  >
+                    <option value="60">1 minute</option>
+                    <option value="90">1 minute 30 seconds</option>
+                    <option value="120">2 minutes</option>
+                    <option value="180">3 minutes</option>
+                  </select>
+                  <small>
+                    Choose before starting a solo or pass-and-play match.
+                  </small>
+                </label>
+              )}
               <label className="field">
                 Game effects
                 <select
@@ -1056,16 +1240,6 @@ export default function Home() {
                     ? 'Reduced motion is enabled on your device. Movement effects are paused.'
                     : 'Controls resource flights, piece motion, and visual highlights. Sound has its own setting.'}
                 </small>
-              </label>
-              <label className="field">
-                Island seed
-                <input
-                  value={seed}
-                  onChange={(e) => setSeed(e.target.value)}
-                  type="number"
-                  min="0"
-                  max="4294967295"
-                />
               </label>
               <button className="setting-toggle" onClick={() => setLite(!lite)}>
                 <span>
@@ -1147,84 +1321,108 @@ export default function Home() {
                       ),
                   )}
               </div>
-              <div className="trade-picker">
-                {(['give', 'want'] as const).map((side) => (
-                  <fieldset key={side}>
-                    <legend>
-                      {side === 'give' ? 'You give' : 'You receive'}
-                    </legend>
-                    <div className="trade-resources">
-                      {RESOURCES.map((resource, i) => {
-                        const Icon = icons[i];
-                        const amount =
-                          side === 'give' && partner === -1
-                            ? rate(game, viewer, i)
-                            : 1;
-                        const unavailable =
-                          side === 'give'
-                            ? player.resources[i] < amount
-                            : i === give;
-                        return (
-                          <button
-                            key={resource}
-                            type="button"
-                            aria-pressed={(side === 'give' ? give : want) === i}
-                            disabled={unavailable}
-                            onClick={() =>
-                              side === 'give' ? setGive(i) : setWant(i)
-                            }
-                          >
-                            <Icon size={22} />
-                            <strong>
-                              {amount} {resource}
-                            </strong>
-                            <small>
-                              {side === 'give'
-                                ? `${player.resources[i]} in hand`
-                                : partner === -1
-                                  ? `${game.bank[i]} in bank`
-                                  : 'Request from players'}
-                            </small>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </fieldset>
-                ))}
-              </div>
-              <p className="trade-summary">
-                Give {partner === -1 ? rate(game, viewer, give) : 1}{' '}
-                {RESOURCES[give]} <ArrowRight size={16} /> Receive 1{' '}
-                {RESOURCES[want]}
-              </p>
-              <p className="muted">
-                {partner === -1
-                  ? 'Your best harbour rate is applied automatically.'
-                  : network
-                    ? 'Open until your turn ends. Players join, then you choose who to trade with. You can keep building while you wait.'
-                    : local
-                      ? 'The other player must agree before resources change hands.'
-                      : 'Your opponent may accept or decline this offer.'}
-              </p>
-              {notice && <output>{notice}</output>}
-              <button
-                className="primary"
-                disabled={!validTrade}
-                onClick={trade}
-              >
-                {partner === -1
-                  ? 'Trade with bank'
-                  : network
-                    ? 'Post for everyone'
-                    : 'Offer trade'}{' '}
-                <ArrowLeftRight size={18} />
-              </button>
-              {!validTrade && (
-                <p className="muted">
-                  {network && partner !== -1 && online.view?.offer
-                    ? 'You already have a public post. Cancel it to post a different trade.'
-                    : 'Choose different resources. You need enough cards to give, and bank trades need stock in the bank.'}
-                </p>
+              {network && partner !== -1 ? (
+                <PublicTradeComposer
+                  resources={player.resources}
+                  disabled={
+                    bot ||
+                    !!online.view?.offer ||
+                    game.phase !== 'main' ||
+                    !!game.freeRoads
+                  }
+                  post={(giveCards, wantCards) => {
+                    void online.send({
+                      type: 'post-offer',
+                      giveCards,
+                      wantCards,
+                    });
+                    setModal(null);
+                  }}
+                />
+              ) : (
+                <>
+                  <div className="trade-picker">
+                    {(['give', 'want'] as const).map((side) => (
+                      <fieldset key={side}>
+                        <legend>
+                          {side === 'give' ? 'You give' : 'You receive'}
+                        </legend>
+                        <div className="trade-resources">
+                          {RESOURCES.map((resource, i) => {
+                            const Icon = icons[i];
+                            const amount =
+                              side === 'give' && partner === -1
+                                ? rate(game, viewer, i)
+                                : 1;
+                            const unavailable =
+                              side === 'give'
+                                ? player.resources[i] < amount
+                                : i === give;
+                            return (
+                              <button
+                                key={resource}
+                                type="button"
+                                aria-pressed={
+                                  (side === 'give' ? give : want) === i
+                                }
+                                disabled={unavailable}
+                                onClick={() =>
+                                  side === 'give' ? setGive(i) : setWant(i)
+                                }
+                              >
+                                <Icon size={22} />
+                                <strong>
+                                  {amount} {resource}
+                                </strong>
+                                <small>
+                                  {side === 'give'
+                                    ? `${player.resources[i]} in hand`
+                                    : partner === -1
+                                      ? `${game.bank[i]} in bank`
+                                      : 'Request from players'}
+                                </small>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </fieldset>
+                    ))}
+                  </div>
+                  <p className="trade-summary">
+                    Give {partner === -1 ? rate(game, viewer, give) : 1}{' '}
+                    {RESOURCES[give]} <ArrowRight size={16} /> Receive 1{' '}
+                    {RESOURCES[want]}
+                  </p>
+                  <p className="muted">
+                    {partner === -1
+                      ? 'Your best harbour rate is applied automatically.'
+                      : network
+                        ? 'Open until your turn ends. Players join, then you choose who to trade with. You can keep building while you wait.'
+                        : local
+                          ? 'The other player must agree before resources change hands.'
+                          : 'Your opponent may accept or decline this offer.'}
+                  </p>
+                  {notice && <output>{notice}</output>}
+                  <button
+                    className="primary"
+                    disabled={!validTrade}
+                    onClick={trade}
+                  >
+                    {partner === -1
+                      ? 'Trade with bank'
+                      : network
+                        ? 'Post for everyone'
+                        : 'Offer trade'}{' '}
+                    <ArrowLeftRight size={18} />
+                  </button>
+                  {!validTrade && (
+                    <p className="muted">
+                      {network && partner !== -1 && online.view?.offer
+                        ? 'You already have a public post. Cancel it to post a different trade.'
+                        : 'Choose different resources. You need enough cards to give, and bank trades need stock in the bank.'}
+                    </p>
+                  )}
+                </>
               )}
             </>
           )}

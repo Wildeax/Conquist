@@ -6,6 +6,7 @@ export type FeedbackFrame = {
   revision: number;
   viewer: number;
   playing: boolean;
+  hands?: number[];
   move: Action['type'] | null;
 };
 export type GameFeedback = {
@@ -14,9 +15,11 @@ export type GameFeedback = {
   yourTurn: boolean;
   active: number;
   gains: number[];
+  playerGains: number[];
   losses: number[];
   message: string;
   builds: { key: string; x: number; z: number }[];
+  producing: { x: number; z: number }[];
   sources: { resource: number; amount: number; x: number; z: number }[];
 };
 export type FeedbackLevel = 'full' | 'subtle' | 'off';
@@ -78,6 +81,20 @@ export function feedbackBetween(
     }
   }
   const sources: GameFeedback['sources'] = [];
+  const producing: GameFeedback['producing'] = [];
+  if (next.move === 'roll' && game.dice[0] + game.dice[1] !== 7) {
+    for (const hex of game.hexes) {
+      const resource = RESOURCES.findIndex((r) => r === hex.resource);
+      if (
+        resource >= 0 &&
+        hex.number === game.dice[0] + game.dice[1] &&
+        hex.id !== game.raider &&
+        game.bank[resource] < before.bank[resource] &&
+        hex.vertices.some((id) => game.vertices[id].owner !== null)
+      )
+        producing.push({ x: hex.x, z: hex.z });
+    }
+  }
   if (next.move === 'roll') {
     const remaining = [...gains];
     const total = game.dice.reduce((a, b) => a + b, 0);
@@ -135,9 +152,20 @@ export function feedbackBetween(
     yourTurn,
     active: game.active,
     gains,
+    playerGains: game.players.map((p, i) =>
+      next.move === 'roll'
+        ? Math.max(
+            0,
+            (next.hands?.[i] ?? p.resources.reduce((a, b) => a + b, 0)) -
+              (previous.hands?.[i] ??
+                before.players[i].resources.reduce((a, b) => a + b, 0)),
+          )
+        : 0,
+    ),
     losses,
     builds,
     sources,
+    producing,
     message,
   };
 }

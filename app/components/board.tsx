@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState, useMemo } from 'react';
 import * as T from 'three';
+import { gsap } from 'gsap';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
   COLORS,
@@ -18,6 +19,8 @@ type Props = {
   game: Game;
   actions: Action[];
   onAction: (a: Action) => void;
+  onPreview?: (a: Action) => void;
+  preview?: Action | null;
   view: number;
   lite: boolean;
   mapSkin?: string;
@@ -26,11 +29,13 @@ type Props = {
 };
 type Runtime = {
   scene: T.Scene;
+  renderer: T.WebGLRenderer;
   pieces: T.Group;
   targets: T.Group;
   camera: T.PerspectiveCamera;
   controls: OrbitControls;
   reduced: boolean;
+  showGhost: (action: Action | null) => void;
 };
 function updateReducedMotion(runtime: Runtime, reduced: boolean) {
   runtime.reduced = reduced;
@@ -83,6 +88,8 @@ export default function Board({
   game,
   actions,
   onAction,
+  onPreview,
+  preview = null,
   view,
   lite,
   mapSkin = 'map.ember',
@@ -95,11 +102,11 @@ export default function Board({
     ),
     host = useRef<HTMLDivElement>(null),
     runtime = useRef<Runtime | null>(null),
-    latest = useRef({ actions, onAction });
+    latest = useRef({ actions, onAction, onPreview, preview });
   const [error, setError] = useState(false);
   useEffect(() => {
-    latest.current = { actions, onAction };
-  }, [actions, onAction]);
+    latest.current = { actions, onAction, onPreview, preview };
+  }, [actions, onAction, onPreview, preview]);
   useEffect(() => {
     const el = host.current!;
     let renderer: T.WebGLRenderer;
@@ -120,12 +127,16 @@ export default function Board({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, lite ? 1 : 1.75));
     renderer.shadowMap.enabled = !lite;
     renderer.shadowMap.type = T.PCFShadowMap;
+    // The light and island are static. Refresh this expensive pass only when
+    // a road, settlement, city or Raider changes.
+    renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = !lite;
     renderer.outputColorSpace = T.SRGBColorSpace;
     renderer.toneMapping = T.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
     renderer.domElement.setAttribute(
       'aria-label',
-      '3D Ember Isles. Drag to orbit, scroll to zoom. Legal locations below provide keyboard controls.',
+      '3D Ember Isles board. Select a glowing location to build.',
     );
     el.appendChild(renderer.domElement);
     const scene = new T.Scene();
@@ -165,17 +176,64 @@ export default function Board({
     scene.add(pieces, targets);
     const rt: Runtime = {
       scene,
+      renderer,
       pieces,
       targets,
       camera,
       controls,
       reduced,
+      showGhost: () => {},
     };
     runtime.current = rt;
+    let ghost: T.Group | null = null,
+      ghostKey = '';
+    const showGhost = (action: Action | null) => {
+      const key = action && 'id' in action ? `${action.type}-${action.id}` : '';
+      if (key === ghostKey) return;
+      if (ghost) {
+        scene.remove(ghost);
+        dispose(ghost);
+        ghost = null;
+      }
+      ghostKey = key;
+      if (
+        !action ||
+        !('id' in action) ||
+        !['road', 'settlement', 'city', 'raider'].includes(action.type)
+      )
+        return;
+      const target = targets.children.find(
+        (m) =>
+          m.userData.action.type === action.type &&
+          m.userData.action.id === action.id,
+      );
+      if (!target) return;
+      ghost = createModel(
+        action.type as 'road' | 'settlement' | 'city' | 'raider',
+        '#ffe6a0',
+      );
+      ghost.position.copy(target.position);
+      ghost.position.y = 0.23;
+      if (action.type === 'road') ghost.rotation.y = target.rotation.y;
+      ghost.traverse((child) => {
+        if (child instanceof T.Mesh) {
+          for (const material of Array.isArray(child.material)
+            ? child.material
+            : [child.material]) {
+            material.transparent = true;
+            material.opacity = 0.55;
+            material.depthWrite = false;
+          }
+        }
+      });
+      scene.add(ghost);
+    };
+    rt.showGhost = showGhost;
     const ray = new T.Raycaster(),
       pointer = new T.Vector2();
     let startX = 0,
       startY = 0,
+      dragging = false,
       hover: T.Mesh | null = null;
     function pick(e: PointerEvent) {
       const rect = renderer.domElement.getBoundingClientRect();
@@ -191,25 +249,69 @@ export default function Board({
     const down = (e: PointerEvent) => {
       startX = e.clientX;
       startY = e.clientY;
+      dragging = false;
     };
     const up = (e: PointerEvent) => {
-      if (Math.hypot(e.clientX - startX, e.clientY - startY) > 6) return;
+      const moved =
+        dragging || Math.hypot(e.clientX - startX, e.clientY - startY) > 6;
+      dragging = false;
+      renderer.domElement.style.cursor = 'grab';
+      if (moved) return;
       const hit = pick(e);
-      if (hit) latest.current.onAction(hit.userData.action);
+      if (hit) {
+        if (e.pointerType === 'touch' && latest.current.onPreview)
+          latest.current.onPreview(hit.userData.action);
+        else latest.current.onAction(hit.userData.action);
+      }
     };
     const move = (e: PointerEvent) => {
+      if (e.buttons && Math.hypot(e.clientX - startX, e.clientY - startY) > 6) {
+        if (!dragging) {
+          dragging = true;
+          hover = null;
+          showGhost(null);
+          renderer.domElement.style.cursor = 'grabbing';
+        }
+        return;
+      }
       hover = pick(e) ?? null;
       renderer.domElement.style.cursor = hover ? 'pointer' : 'grab';
+      if (e.pointerType !== 'touch')
+        showGhost(hover?.userData.action ?? latest.current.preview);
     };
+    const leave = () => {
+      hover = null;
+      showGhost(latest.current.preview);
+    };
+    renderer.domElement.addEventListener('pointerleave', leave);
     renderer.domElement.addEventListener('pointerdown', down);
     renderer.domElement.addEventListener('pointerup', up);
     renderer.domElement.addEventListener('pointermove', move);
+    let fitted = false;
     const resize = () => {
       if (!el.clientWidth || !el.clientHeight) return;
       renderer.setSize(el.clientWidth, el.clientHeight);
       camera.aspect = el.clientWidth / el.clientHeight;
+      if (window.matchMedia('(min-width: 761px)').matches) {
+        // Reserve visual weight for the floating hand without moving the
+        // orbit pivot away from the center of the island.
+        camera.setViewOffset(
+          el.clientWidth,
+          el.clientHeight,
+          0,
+          Math.round(el.clientHeight * 0.065),
+          el.clientWidth,
+          el.clientHeight,
+        );
+      } else {
+        camera.clearViewOffset();
+      }
       camera.updateProjectionMatrix();
-      fitBoard(camera, controls);
+      // Fit once on mount. Layout changes must not overwrite the player's zoom.
+      if (!fitted) {
+        fitBoard(camera, controls);
+        fitted = true;
+      }
     };
     const observer = new ResizeObserver(resize);
     observer.observe(el);
@@ -224,12 +326,18 @@ export default function Board({
       environment.update(elapsed);
       for (const m of targets.children) {
         const mat = (m as T.Mesh).material as T.MeshStandardMaterial;
-        mat.emissiveIntensity =
-          m === hover
-            ? 1.1
-            : rt.reduced
-              ? 0.32
-              : 0.28 + Math.sin(elapsed * 2.8) * 0.12;
+        const pulse = 0.5 + Math.sin(elapsed * 4.2) * 0.5;
+        const hovered = m === hover;
+        // Keep the resting glow while lowering the pulse peak from 1.8 to 1.53 (15%).
+        mat.emissiveIntensity = hovered
+          ? 2
+          : rt.reduced
+            ? 1
+            : 0.8 + pulse * 0.73;
+        // The ghost model becomes the entire hover target; the marker stays raycastable.
+        mat.opacity = hovered ? 0 : rt.reduced ? 0.9 : 0.74 + pulse * 0.2;
+        const scale = hovered ? 1.1 : rt.reduced ? 1.02 : 0.97 + pulse * 0.1;
+        m.scale.setScalar(scale);
       }
       controls.update();
       renderer.render(scene, camera);
@@ -255,6 +363,7 @@ export default function Board({
     const rt = runtime.current;
     if (!rt) return;
     const snapshot = structuredClone(game);
+    rt.showGhost(null);
     dispose(rt.targets);
     rt.targets.clear();
     const nextKeys = new Set<string>();
@@ -315,7 +424,7 @@ export default function Board({
           v = game.vertices[e.a],
           w = game.vertices[e.b];
         m = part(
-          new T.BoxGeometry(0.17, 0.06, 0.73),
+          new T.BoxGeometry(0.28, 0.065, 0.9),
           '#e5c87f',
           (v.x + w.x) / 2,
           0.26,
@@ -330,7 +439,7 @@ export default function Board({
       } else {
         const v = game.vertices[a.id];
         m = part(
-          new T.CylinderGeometry(0.14, 0.17, 0.045, 20),
+          new T.CylinderGeometry(0.1725, 0.1875, 0.05, 24),
           '#bca36c',
           v.x,
           0.242,
@@ -341,10 +450,16 @@ export default function Board({
       mat.emissive.set('#e7bc69');
       mat.transparent = true;
       mat.opacity = 0.75;
+      mat.depthTest = false;
+      m.renderOrder = 20;
       m.userData.action = structuredClone(a);
       rt.targets.add(m);
     }
+    rt.renderer.shadowMap.needsUpdate = !lite;
   }, [game, actions, lite]);
+  useEffect(() => {
+    runtime.current?.showGhost(preview);
+  }, [preview, actions, game, lite]);
   useEffect(() => {
     const rt = runtime.current;
     if (rt) updateReducedMotion(rt, reducedMotion);
@@ -362,16 +477,53 @@ export default function Board({
   }, [terrain, lite, feedbackLevel, reducedMotion]);
   useEffect(() => {
     const rt = runtime.current;
-    if (rt) {
-      rt.camera.position.set(0, view % 2 ? 14 : 9.7, view % 2 ? 1 : 12);
-      fitBoard(rt.camera, rt.controls);
+    if (!rt) return;
+    const destination = new T.Vector3(
+      0,
+      view % 2 ? 14 : 9.7,
+      view % 2 ? 1 : 12,
+    );
+    const halfFov = Math.atan(
+      Math.tan(T.MathUtils.degToRad(rt.camera.fov / 2)) *
+        Math.min(rt.camera.aspect, 1),
+    );
+    const distance = 5.65 / Math.sin(halfFov);
+    destination
+      .sub(rt.controls.target)
+      .normalize()
+      .multiplyScalar(distance)
+      .add(rt.controls.target);
+    rt.controls.minDistance = distance * 0.5;
+    rt.controls.maxDistance = distance * 1.6;
+    if (reducedMotion) {
+      rt.camera.position.copy(destination);
+      rt.controls.update();
+      return;
     }
-  }, [view]);
+    rt.controls.enabled = false;
+    const tween = gsap.to(rt.camera.position, {
+      x: destination.x,
+      y: destination.y,
+      z: destination.z,
+      duration: 0.85,
+      ease: 'power2.inOut',
+      overwrite: true,
+      onUpdate: () => rt.controls.update(),
+      onComplete: () => {
+        rt.controls.enabled = true;
+      },
+    });
+    return () => {
+      tween.kill();
+      rt.controls.enabled = true;
+    };
+  }, [view, reducedMotion]);
   return (
     <div className="board-canvas" ref={host}>
       {error && (
         <div className="webgl-error">
-          3D is unavailable. You can still play using Legal locations below.
+          3D is unavailable. Enable hardware acceleration or try another
+          browser.
         </div>
       )}
     </div>
