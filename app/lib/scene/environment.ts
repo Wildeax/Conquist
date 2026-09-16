@@ -122,7 +122,7 @@ export function createEnvironment(
     life = new T.Group();
   scene.add(land, life);
   const clock = { value: 0 };
-  const texture = new T.TextureLoader().load('/art/terrain-atlas.png');
+  const texture = new T.TextureLoader().load('/art/terrain-atlas-v1.webp');
   texture.colorSpace = T.SRGBColorSpace;
   texture.anisotropy = lite ? 1 : 4;
   const ground = new T.MeshStandardMaterial({

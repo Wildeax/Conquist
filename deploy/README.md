@@ -13,7 +13,7 @@ Both branches require pull requests, passing `validate` checks and resolved conv
 
 1. Open a feature PR into `develop` and merge after checks pass. **Deploy Conquist** builds and deploys staging automatically.
 2. Test the staging game, then open a PR from `develop` into `main`.
-3. Merge after checks pass. The same workflow builds and deploys production.
+3. Leave the production PR open until the user has tested staging and explicitly approved production. Only then merge. The production environment requires approval from Wildeax before deployment. Never approve or bypass that gate without explicit user authorization.
 
 Use **Actions → Deploy Conquist → Run workflow** on `develop` or `main` to deploy that branch. To reuse an existing release exactly, enter its full SHA in `rollback_sha`. A SHA cannot overwrite a previously loaded image with different contents; changed dependencies or build output require a new commit. Deployments are serialized per environment and are not cancelled halfway through a release. PR code runs on GitHub-hosted runners without deployment credentials.
 

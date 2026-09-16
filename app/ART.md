@@ -2,19 +2,63 @@
 
 Conquist's original visual direction is a miniature volcanic archipelago. Deep teal water and slate surroundings frame carved, warm-lit terrain. Amber, turquoise, coral and violet identify the four players, accompanied by different sigils.
 
-## Original 3D assets
+## Playable medieval diorama
 
-`lib/scene/models.ts` creates original miniature settlements, fortified cities, pines, sheep, sailing ships, roads and a cloaked Raider. `lib/scene/environment.ts` builds textured terrain, farms, quarries, docks, a volcano, birds and smoke. Static geometry is batched by material. No outside game models or franchise artwork are used. Number labels are rendered to texture from text.
+The live board now uses the reviewed Blender models from `public/diorama/v1`:
+all six terrain types, animated sheep, medieval houses and walled cities,
+stone roads with player-colored borders, cargo ports with sailing ships and
+the hooded Raider. These 13 compressed GLBs total about 31.3 MiB. A local
+Draco decoder avoids external CDN requests. The assets are committed, so a
+fresh checkout can build and play without installing Blender.
 
-Portable GLB versions of the seven model types are in `public/models/`. Rebuild them with `npm run assets:models`. The live renderer uses the same model factories directly. The ocean is a custom animated GLSL shader in `lib/scene/water.ts`, with wave normals, sunlight glints, shallow-water color and shoreline foam. Wind animates foliage and sails; boats bob and birds circle. Lite mode reduces geometry and disables shadows; reduced-motion preferences freeze ambient animation.
+`lib/scene/diorama-state.ts` preserves the engine's IDs and graph while scaling
+presentation coordinates to join the hexagons. `components/board.tsx` retains
+the existing legal-action dispatch, hover preview, touch confirmation and
+Raider victim selection. The same board component consumes local and online
+snapshots. An empty match has no sample buildings. Upgrades replace houses;
+ownership, roads and the Raider are rebuilt only when construction state changes.
+Ports and floating labels derive from the actual map seed and harbour endpoints.
+The Raider sits on the sampled ground near the tile rim and marks blocked production.
+
+The reviewed water, lighting, wind, sheep, smoke, pieces and label modules live
+in `lib/scene/diorama/`. Art-review files re-export those modules to avoid a
+separate production copy. Material environment reflections remain removed.
+The sea retains its cached planar reflection; animated shadows and reflections
+refresh at most four times per animation second, and rendering is capped at
+30 fps. Reduced motion freezes animation. Lite graphics disables shadows and
+wind, halves the sheep count and uses a smaller water mesh. Normal and roughness
+textures, custom depth materials, render targets and detached labels are disposed
+when switching maps or graphics quality. Missing assets fall back to the basic
+procedural board with an explicit status message.
+
+Assets are original procedural work; supplied references guided their design.
+Blender source scripts and the authoring notes are in `../art/blender`.
+Regenerate selected source assets there, then run `node tools/publish-diorama-assets.mjs`
+from `app/`. After publishing a version, use a new directory/version and update
+the runtime and nginx cache path for later asset revisions. `manifest.json`
+records sizes and SHA-256 hashes. Large intermediate `.blend` files and renders
+remain local and are not needed by the game.
+
+Validation: `npm test`, `npm run typecheck`, `npm run lint`, `npm run build:vps`.
+`node tools/check-diorama.mjs` exercises the actual browser at
+`CONQUIST_TEST_URL` (default `http://localhost:4320`), including a real canvas
+click, saved-state restoration, city upgrades, Raider movement, mobile layout,
+graphics reload and failed-asset fallback. Test output goes to ignored
+`outputs/diorama-check`. On Windows, Node 22 avoids a known local Node 25
+process-close assertion after an otherwise successful production build.
+
+The older factories in `models.ts` and `environment.ts` remain as the loading
+failure fallback. Their portable seven-model exports remain in `public/models`.
 
 ## Generated game atlases
 
 These original assets were generated with the built-in image generation tool, visually inspected, and copied into the repository. The supplied game screenshot informed the desired presentation, not copied artwork. Atlases are sampled with cell-specific UVs or CSS background positions.
 
-- `public/art/terrain-atlas.png`: 1536 × 1024, three columns and two rows: forest soil, clay, meadow, crop stubble, basalt, sandy ash.
-- `public/art/leader-atlas.png`: 1254 × 1254, two-by-two portraits: amber captain, teal navigator, coral stoneworker, violet scholar. The generator returned a larger size than requested.
-- `public/art/resource-atlas.png`: 1024 × 1536, two columns and three rows: logs, bricks, wool, wheat, stone, fortune card. Alpha includes softly painted shading around the objects.
+- `public/art/terrain-atlas-v1.webp`: 1536 × 1024, three columns and two rows: forest soil, clay, meadow, crop stubble, basalt, sandy ash.
+- `public/art/leader-atlas-v1.webp`: 1254 × 1254, two-by-two portraits: amber captain, teal navigator, coral stoneworker, violet scholar. The generator returned a larger size than requested.
+- `public/art/resource-atlas-v1.webp`: 1024 × 1536, two columns and three rows: logs, bricks, wool, wheat, stone, fortune card. Alpha includes softly painted shading around the objects.
+
+The public files use quality-82 WebP compression. Versioned names allow browsers and the CDN to cache them permanently while a future visual revision can use a new filename.
 
 Generation prompts:
 
@@ -24,7 +68,7 @@ Generation prompts:
 
 > Resources: Use case: stylized-concept. Asset type: fantasy videogame resource sprite atlas with actual transparent alpha background. Generate ONE image exactly 1024x1536 pixels. Exact 2 columns by 3 rows of equal 512x512 cells with NO visible grid. Transparent background, centered isolated 3D painted game inventory objects, each occupies central 65% of its cell without overlap. Row 1 left: bundle of timber logs. Row 1 right: stack of orange clay bricks. Row 2 left: cream wool bundle. Row 2 right: golden wheat sheaf. Row 3 left: basalt stone cluster. Row 3 right: ancient gold-trimmed fortune card with compass sigil. Consistent warm key light from upper-left. Actual transparent background, not white and not a painted checkerboard. No lettering, labels, numbers, frames, watermarks, or shadows outside cells. Exactly six distinct objects in the precise stated positions, entirely isolated with generous transparent spacing.
 
-## Water refinement
+## Earlier procedural water refinement
 
 Water revision: replaced directional sine stripes with drifting, rotated noise layers, pixel-footprint filtering, softer glints and broken shoreline foam. The reflectance treatment follows the [official Three.js Water implementation](https://github.com/mrdoob/three.js/blob/dev/examples/jsm/objects/Water.js). This remains a custom single-pass shader, not the full reflective Water addon. The enlarged ocean fades to the exact background color before its boundary or the camera's far clipping plane becomes visible.
 
@@ -34,7 +78,7 @@ Water revision: replaced directional sine stripes with drifting, rotated noise l
 
 ## Generated illustration
 
-File: `public/art/ember-isles.png`
+File: `public/art/ember-isles-v1.webp`
 
 Created with the built-in image generation tool, then inspected and copied into this repository. Used on the game menu. Dimensions: 1536 × 1024.
 

@@ -1,6 +1,8 @@
 'use client';
 import { ArrowRight, Handshake } from 'lucide-react';
-import { RESOURCES, COLORS, type Game } from '@/packages/rules/game';
+import { ResourceBundle } from '@/components/resource-bundle';
+import { offerCards, ownsCards } from '@/packages/rules/trading';
+import { COLORS, type Game } from '@/packages/rules/game';
 import type { Command, Offer } from '@/server/rooms';
 
 export function TradePost({
@@ -16,13 +18,14 @@ export function TradePost({
   disabled: boolean;
   send: (command: Command) => Promise<void>;
 }) {
+  const cards = offerCards(offer);
   const owner = viewer === offer.owner;
   const joined = offer.interested.includes(viewer);
-  const canGive = game.players[viewer].resources[offer.want] > 0;
+  const canGive = ownsCards(game.players[viewer].resources, cards.want);
   const canFinish =
     game.phase === 'main' &&
     !game.freeRoads &&
-    game.players[viewer].resources[offer.give] > 0;
+    ownsCards(game.players[viewer].resources, cards.give);
   return (
     <details className="trade-post" open key={offer.id}>
       <summary>
@@ -39,12 +42,12 @@ export function TradePost({
         <div className="trade-exchange">
           <div>
             <small>{owner ? 'You give' : 'You receive'}</small>
-            <strong>1 {RESOURCES[offer.give]}</strong>
+            <ResourceBundle cards={cards.give} />
           </div>
           <ArrowRight size={20} />
           <div>
             <small>{owner ? 'You receive' : 'You give'}</small>
-            <strong>1 {RESOURCES[offer.want]}</strong>
+            <ResourceBundle cards={cards.want} />
           </div>
         </div>
         {owner ? (
@@ -69,7 +72,7 @@ export function TradePost({
                   }
                 >
                   <span
-                    className="trade-player-dot"
+                    className={`avatar portrait portrait-${seat} trade-avatar`}
                     style={{ background: COLORS[seat] }}
                   />{' '}
                   Trade with {game.players[seat].name}
@@ -78,8 +81,8 @@ export function TradePost({
             </div>
             {!canFinish && (
               <p className="muted">
-                You need 1 {RESOURCES[offer.give]} and must finish any pending
-                move before confirming.
+                You need the offered cards and must finish any pending move
+                before confirming.
               </p>
             )}
             <button
@@ -99,7 +102,7 @@ export function TradePost({
                 ? 'You joined. The owner chooses who to trade with.'
                 : canGive
                   ? 'Join this offer to let the owner know you want to trade.'
-                  : `You need 1 ${RESOURCES[offer.want]} to join.`}
+                  : 'You need all requested cards to join.'}
             </output>
             <button
               className={joined ? 'secondary' : 'primary'}

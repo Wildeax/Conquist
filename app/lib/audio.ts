@@ -1,5 +1,7 @@
 import type { Action } from '@/packages/rules/game';
 export type Cue =
+  | 'chat'
+  | 'interest'
   | 'collect'
   | 'dice'
   | 'build'
@@ -126,6 +128,30 @@ class GameAudio {
     if (this.enabled && this.ctx?.state === 'suspended')
       void this.ctx.resume().catch(() => {});
   }
+  playCountdown(secondsLeft: number) {
+    if (
+      secondsLeft < 1 ||
+      secondsLeft > 10 ||
+      !this.enabled ||
+      !this.ctx ||
+      this.ctx.state !== 'running'
+    )
+      return;
+    const t = this.ctx.currentTime;
+    if (t - this.lastCue < 0.2) return;
+    this.lastCue = t;
+    const urgency = 10 - secondsLeft;
+    this.hit(t, 0.045, 0.12 + urgency * 0.004, 1850 + urgency * 65);
+    this.tone(
+      720 + urgency * 24,
+      t,
+      0.075,
+      0.045 + urgency * 0.002,
+      'triangle',
+      540 + urgency * 18,
+    );
+    if (secondsLeft <= 3) this.tone(1080, t + 0.09, 0.055, 0.035, 'sine', 820);
+  }
   private tone(
     f: number,
     time: number,
@@ -183,6 +209,13 @@ class GameAudio {
     if (t - this.lastCue < 0.035) return;
     this.lastCue = t;
     switch (cue) {
+      case 'chat':
+        this.tone(880, t, 0.1, 0.035);
+        break;
+      case 'interest':
+        this.tone(660, t, 0.15, 0.065);
+        this.tone(880, t + 0.1, 0.2, 0.05);
+        break;
       case 'collect':
         [784, 988, 1175].forEach((f, i) =>
           this.tone(f, t + i * 0.075, 0.22, 0.055),

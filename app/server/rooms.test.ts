@@ -55,6 +55,40 @@ test('rooms require four players, host start, authenticated seats, and current r
   );
 });
 
+test('the host configures an authoritative deadline that advances an idle turn', (t) => {
+  const { rooms, code, tokens, send } = table(t);
+  const started = send(0, { type: 'start', turnSeconds: 120 });
+  assert.equal(started.turnSeconds, 120);
+  assert.ok(started.turnDeadline! > started.serverNow);
+
+  const room = rooms.get(code);
+  room.game!.phase = 'main';
+  room.turnDeadline = Date.now() - 1;
+  rooms.save(room);
+  const revision = room.revision;
+  const expired = rooms.view(code, tokens[0]);
+  assert.equal(expired.game!.active, 1);
+  assert.equal(expired.game!.phase, 'roll');
+  assert.equal(expired.revision, revision + 1);
+  assert.match(expired.game!.log[0], /turn expired/);
+  assert.ok(expired.turnDeadline! > expired.serverNow);
+
+  const nextRoom = rooms.get(code);
+  nextRoom.turnDeadline = Date.now() - 1;
+  rooms.save(nextRoom);
+  const rolledOut = rooms.view(code, tokens[0]);
+  assert.equal(rolledOut.game!.active, 2);
+  assert.equal(rolledOut.game!.phase, 'roll');
+});
+
+test('online rooms reject unsupported turn times', (t) => {
+  const { send } = table(t);
+  assert.throws(
+    () => send(0, { type: 'start', turnSeconds: 10 }),
+    /available turn time/,
+  );
+});
+
 test('private views redact resource composition, cards, deck order, RNG and credentials', (t) => {
   const { rooms, code, tokens, send, directory } = table(t);
   send(0, { type: 'start' });
@@ -352,4 +386,74 @@ test('HTTP protocol hides new posts from older tabs and preserves rollback-compa
   assert.equal(newView.offer!.id, persisted.tradePost.id);
   assert.equal(newView.revision, oldView.revision);
   assert.deepEqual(newView.game, oldView.game);
+});
+
+test('room chat authenticates authors, survives reload, retries once and never invalidates moves', (t) => {
+  const { rooms, code, tokens, send, directory } = table(t);
+  send(0, { type: 'start' });
+  const before = rooms.view(code, tokens[0]);
+  const id = 'chat-message-000001';
+  assert.throws(() => rooms.chat(code, 'invalid', 'hello', id), /invalid/);
+  assert.throws(() => rooms.chat(code, tokens[0], 'x'.repeat(281), id), /280/);
+  assert.throws(() => rooms.chat(code, tokens[0], '\u0000', id), /message/);
+  const view = rooms.chat(
+    code,
+    tokens[1],
+    '<img src=x onerror=alert(1)>\u202e',
+    id,
+  );
+  assert.equal(view.chat[0].seat, 1);
+  assert.equal(view.chat[0].text, '<img src=x onerror=alert(1)>');
+  assert.equal(view.revision, before.revision);
+  assert.deepEqual(view.game, rooms.view(code, tokens[1]).game);
+  assert.equal(view.lastMove, before.lastMove);
+  assert.equal(rooms.chat(code, tokens[1], 'retry', id).chat.length, 1);
+  const restored = new Rooms(directory);
+  assert.equal(restored.view(code, tokens[0]).chat.length, 1);
+  for (let i = 2; i <= 4; i++)
+    restored.chat(code, tokens[1], 'hello', `chat-message-00000${i}`);
+  assert.throws(
+    () =>
+      new Rooms(directory).chat(
+        code,
+        tokens[1],
+        'fifth',
+        'chat-message-000005',
+      ),
+    /wait/,
+  );
+  const other = rooms.create('Other room');
+  assert.equal(other.view.chat.length, 0);
+  assert.throws(
+    () => rooms.chat(other.view.code, tokens[1], 'hello', id),
+    /invalid/,
+  );
+  rooms.command(code, tokens[0], before.revision, {
+    type: 'action',
+    action: before.actions[0],
+  });
+});
+
+test('bundled posts exchange exact quantities only with a consenting player', (t) => {
+  const { rooms, code, send } = table(t);
+  send(0, { type: 'start' });
+  const game = rooms.get(code).game!;
+  game.phase = 'main';
+  game.players[0].resources = [3, 0, 2, 0, 0];
+  game.players[1].resources = [0, 2, 0, 1, 0];
+  const post = send(0, {
+    type: 'post-offer',
+    giveCards: [2, 0, 1, 0, 0],
+    wantCards: [0, 2, 0, 1, 0],
+  }).offer!;
+  assert.throws(
+    () => send(0, { type: 'choose-trader', offerId: post.id, partner: 1 }),
+    /joined/,
+  );
+  send(1, { type: 'respond', offerId: post.id, accept: true });
+  const view = send(0, { type: 'choose-trader', offerId: post.id, partner: 1 });
+  assert.deepEqual(rooms.get(code).game!.players[0].resources, [1, 2, 1, 1, 0]);
+  assert.deepEqual(rooms.get(code).game!.players[1].resources, [2, 0, 1, 0, 0]);
+  assert.equal(view.offer, null);
+  assert.equal(view.tradeResult?.status, 'completed');
 });

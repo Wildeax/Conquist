@@ -1,7 +1,6 @@
 import * as T from 'three';
 import { gsap } from 'gsap';
 import { feedbackEvents } from '@/lib/use-game-feedback';
-import { RESOURCES } from '@/packages/rules/game';
 import type { feedbackPolicy } from '@/packages/rules/feedback';
 
 /** All objects are temporary presentation objects, excluded from board hit testing. */
@@ -11,6 +10,7 @@ export function mountSceneFeedback(
   camera: T.Camera,
   host: HTMLElement,
   policy: ReturnType<typeof feedbackPolicy>,
+  presentation = { spacing: 1, surface: 0.215 },
 ) {
   let context: gsap.Context | null = null;
   const transient = new Set<() => void>();
@@ -38,8 +38,8 @@ export function mountSceneFeedback(
           );
           gsap.fromTo(
             model.position,
-            { y: 0.215 + 0.22 * policy.strength },
-            { y: 0.215, duration: 0.42, ease: 'bounce.out' },
+            { y: presentation.surface + 0.22 * policy.strength },
+            { y: presentation.surface, duration: 0.42, ease: 'bounce.out' },
           );
         }
         const material = new T.MeshBasicMaterial({
@@ -50,7 +50,11 @@ export function mountSceneFeedback(
         });
         const ring = new T.Mesh(new T.RingGeometry(0.15, 0.19, 32), material);
         ring.rotation.x = -Math.PI / 2;
-        ring.position.set(build.x, 0.24, build.z);
+        ring.position.set(
+          build.x * presentation.spacing,
+          presentation.surface + 0.025,
+          build.z * presentation.spacing,
+        );
         scene.add(ring);
         const remove = () => {
           scene.remove(ring);
@@ -61,6 +65,30 @@ export function mountSceneFeedback(
         transient.add(remove);
         gsap.to(ring.scale, { x: 3, y: 3, z: 3, duration: 0.65 });
         gsap.to(material, { opacity: 0, duration: 0.65, onComplete: remove });
+      }
+      for (const tile of event.producing) {
+        const material = new T.MeshBasicMaterial({
+          color: '#efd29a',
+          transparent: true,
+          opacity: 0.5 * policy.strength,
+          depthWrite: false,
+        });
+        const ring = new T.Mesh(new T.RingGeometry(0.78, 0.86, 6), material);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(
+          tile.x * presentation.spacing,
+          presentation.surface + 0.025,
+          tile.z * presentation.spacing,
+        );
+        scene.add(ring);
+        const remove = () => {
+          scene.remove(ring);
+          ring.geometry.dispose();
+          material.dispose();
+          transient.delete(remove);
+        };
+        transient.add(remove);
+        gsap.to(material, { opacity: 0, duration: 1.2, onComplete: remove });
       }
       if (!policy.flights) return;
       const remaining = [...event.gains];
@@ -74,14 +102,21 @@ export function mountSceneFeedback(
         if (!target) continue;
         const destination = target.getBoundingClientRect();
         if (destination.width === 0 || destination.top > innerHeight) continue;
-        const projected = new T.Vector3(source.x, 0.45, source.z).project(
-          camera,
-        );
+        const projected = new T.Vector3(
+          source.x * presentation.spacing,
+          0.45,
+          source.z * presentation.spacing,
+        ).project(camera);
         if (projected.z < -1 || projected.z > 1) continue;
         const chip = document.createElement('span');
         chip.className = 'resource-flight';
         chip.setAttribute('aria-hidden', 'true');
-        chip.textContent = `+${source.amount} ${RESOURCES[source.resource]}`;
+        const icon = document.createElement('span');
+        icon.className = `resource-flight-icon resource-sprite sprite-${source.resource}`;
+        const amount = document.createElement('strong');
+        amount.textContent = `+${source.amount}`;
+        chip.appendChild(icon);
+        chip.appendChild(amount);
         const x = bounds.left + ((projected.x + 1) * bounds.width) / 2;
         const y = bounds.top + ((1 - projected.y) * bounds.height) / 2;
         chip.style.left = `${Math.max(bounds.left, Math.min(bounds.right, x))}px`;

@@ -16,6 +16,7 @@ export function OnlineLobby({
   const [code, setCode] = useState('');
   const [origin, setOrigin] = useState('');
   const [copied, setCopied] = useState(false);
+  const [turnSeconds, setTurnSeconds] = useState(90);
   useEffect(() => {
     // Hydrate the browser-only invite after server rendering.
     // eslint-disable-next-line react/react-compiler
@@ -74,17 +75,38 @@ export function OnlineLobby({
             </ol>
             {!online.connected && <output>Connecting to your room...</output>}
             {online.view?.seat === 0 && !online.view.game && (
-              <button
-                className="primary"
-                disabled={
-                  online.busy ||
-                  !online.connected ||
-                  online.view.seats.length !== 4
-                }
-                onClick={() => void online.send({ type: 'start' })}
-              >
-                Start match
-              </button>
+              <>
+                <label className="field">
+                  Time per turn
+                  <select
+                    value={turnSeconds}
+                    onChange={(event) =>
+                      setTurnSeconds(Number(event.target.value))
+                    }
+                  >
+                    <option value="60">1 minute</option>
+                    <option value="90">1 minute 30 seconds</option>
+                    <option value="120">2 minutes</option>
+                    <option value="180">3 minutes</option>
+                  </select>
+                  <small>
+                    The server advances the turn when time runs out.
+                  </small>
+                </label>
+                <button
+                  className="primary"
+                  disabled={
+                    online.busy ||
+                    !online.connected ||
+                    online.view.seats.length !== 4
+                  }
+                  onClick={() =>
+                    void online.send({ type: 'start', turnSeconds })
+                  }
+                >
+                  Start match
+                </button>
+              </>
             )}
             {online.view?.game && (
               <button className="primary" onClick={onClose}>
