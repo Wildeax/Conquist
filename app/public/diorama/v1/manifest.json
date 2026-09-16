@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "file": "Cargo.glb",
+      "bytes": 1471532,
+      "sha256": "07072e314bc64bce23099bcbe7503760919257d9fe38c9acf42988c4ffba3c03"
+    },
+    {
+      "file": "City.glb",
+      "bytes": 2069828,
+      "sha256": "07be10cbe9835aa999a3cf1459e502ae20458a7af3001c83960d7b85783ba0b5"
+    },
+    {
+      "file": "Clay.glb",
+      "bytes": 3208348,
+      "sha256": "bafc56fc98ad8d0242324e6a8d3ae0bdb82998238ebd221b1c59e53fbb2fcf6f"
+    },
+    {
+      "file": "Desert.glb",
+      "bytes": 3066532,
+      "sha256": "e860d2d610152b456be68b96128f5b191c84293f36aef8cc08f656e65c693da2"
+    },
+    {
+      "file": "Grain.glb",
+      "bytes": 4829788,
+      "sha256": "615660acb376cd348c77b570a81d0ccaedc496493fe18daea7ef3dffe39b7acc"
+    },
+    {
+      "file": "Port.glb",
+      "bytes": 1521068,
+      "sha256": "b4f34d37250787e621f8f5e3303b985fb2167a8b7de5736c0fa400d49bfe7795"
+    },
+    {
+      "file": "Road.glb",
+      "bytes": 1245344,
+      "sha256": "56cee0def944af7dec23f7b29a4faf6c06eeca27a6ebbd4428f45bd23cb5f64c"
+    },
+    {
+      "file": "Robber.glb",
+      "bytes": 954360,
+      "sha256": "86e18f524acd9115ff8e1f36eeb73f9f53951e85ce3f778387148b63b762632e"
+    },
+    {
+      "file": "Settlement.glb",
+      "bytes": 2003680,
+      "sha256": "4e7b839684e383adccc94f5851ff36c835440d7aa4512165c3241ef9830f8d9c"
+    },
+    {
+      "file": "SheepRig.glb",
+      "bytes": 230240,
+      "sha256": "b753110ea87a5faf8dc0633d1f762ec675c1bd2f707d0449f9dad25d0a6e0b98"
+    },
+    {
+      "file": "Stone.glb",
+      "bytes": 3210892,
+      "sha256": "ec7ba010c4aee63855b3f9057f877091639cad58fc58be36fc2b91b1b7bb44ae"
+    },
+    {
+      "file": "Timber.glb",
+      "bytes": 4691828,
+      "sha256": "22c625fcc5d82b259bc4c0271b24aee8d77c88361e5fd8360fe392607d69fd5e"
+    },
+    {
+      "file": "Wool.glb",
+      "bytes": 4286164,
+      "sha256": "c0f7d46152bef64cfad4e9559b14be7a49cf5221e42852a36ed5d49c1a3cab03"
+    }
+  ]
+}
